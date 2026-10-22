@@ -2,6 +2,7 @@
 # Claude Code running on this Mac's local model (via Ollama) instead of Anthropic's servers.
 #   claude-local                       start with the default local model
 #   CLAUDE_LOCAL_MODEL=other claude-local
+#   claude-local --permission-mode default   ask before acting (CLAUDE_LOCAL_ASK=1 does the same)
 # Your normal `claude` command and login are untouched.
 MODEL="${CLAUDE_LOCAL_MODEL:-__MODEL__}"
 export ANTHROPIC_BASE_URL="http://localhost:11434"
@@ -16,4 +17,12 @@ export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
 # Must match OLLAMA_CONTEXT_LENGTH in ~/Library/LaunchAgents/local.ollama.plist (filled in by the installer)
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS=__CONTEXT__
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-exec claude "$@"
+# No permission prompts by default. Auto mode would ask the local model to vet every command, which
+# is slow and times out while the model is busy, and the default mode asks about everything.
+# A mode given on the command line, or CLAUDE_LOCAL_ASK=1, wins.
+skip=--dangerously-skip-permissions
+[ "${CLAUDE_LOCAL_ASK:-0}" = 1 ] && skip=""
+for a in "$@"; do
+  case "$a" in --permission-mode|--permission-mode=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions) skip="" ;; esac
+done
+exec claude ${skip:+"$skip"} "$@"

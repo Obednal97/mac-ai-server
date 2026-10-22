@@ -226,7 +226,13 @@ confirm() {
 
 do_install() {
   local i name
-  print_plan
+  # A partial run that downloads no model doesn't need the whole plan (or the disk check)
+  if [ -n "$ONLY" ] && ! in_list models "$ONLY"; then
+    echo "Running only: ${ONLY//,/, }. Everything else is left as it is."
+    MAS_DISK_OK=1
+  else
+    print_plan
+  fi
   [ "$MAS_DISK_OK" = 1 ] || mas_die "Not enough disk space."
   confirm
   mas_sudo_init

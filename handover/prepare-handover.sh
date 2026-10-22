@@ -95,7 +95,8 @@ if [ "$MODE" = root ]; then
   tmo() {
     local s="${HANDOVER_TIMEOUT:-$1}" p w rc; shift   # HANDOVER_TIMEOUT: tests only
     "$@" & p=$!
-    ( sleep "$s"; kill -KILL "$p" 2>/dev/null && log "   !! timed out after ${s}s: $*" ) & w=$!
+    # (stderr closed: stopping the watcher's sleep would otherwise log "Terminated: 15")
+    ( exec 2>/dev/null; sleep "$s"; kill -KILL "$p" && log "   !! timed out after ${s}s: $*" ) & w=$!
     wait "$p"; rc=$?
     pkill -P "$w" 2>/dev/null; kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
     return "$rc"
@@ -155,6 +156,12 @@ if [ "$MODE" = root ]; then
   # Early, and needing no network: the new owner must never get password-free sudo for this account.
   log "-- password-free sudo (for the setup owner only)"
   for f in "$SYSROOT"/etc/sudoers.d/*-nopasswd; do [ -e "$f" ] && r rm -f "$f"; done
+
+  # Login names the owner added (first-run step 2): the new owner logs in as $U and picks their own.
+  log "-- extra login names"
+  for a in $(dscl . -read "/Users/$U" RecordName 2>/dev/null | sed 's/^RecordName://'); do
+    [ "$a" = "$U" ] || r dscl . -delete "/Users/$U" RecordName "$a"
+  done
 
   log "-- quitting the browsers"
   for a in Safari "Google Chrome" firefox "Microsoft Edge"; do r pkill -U "$UIDN" -x "$a"; done
@@ -333,11 +340,26 @@ power_button() {  # power_button <model>: where the power button is, for the car
   esac
 }
 # shellcheck disable=SC2016  # written to ~/.zprofile as is
-FR_HOOK='[ -f ~/.first-run/pending ] && [ -t 0 ] && [ -z "$TMUX" ] && ~/.local/bin/first-run-setup'
+# SSH logins only: the Mac usually runs headless, and a Terminal window macOS reopens on its own
+# screen at login would start a copy nobody sees (and that holds the lock). With a monitor, the
+# new owner double-clicks "Start Here" on the desktop instead.
+FR_HOOK='[ -f ~/.first-run/pending ] && [ -n "$SSH_CONNECTION" ] && [ -t 0 ] && [ -z "$TMUX" ] && ~/.local/bin/first-run-setup'
+FR_HOOK_RE='^\[ -f ~/\.first-run/pending \] && .*first-run-setup$'   # this hook, or an older form of it
 arm_pending() {  # a fresh first-run state (no finished steps) that starts the assistant at the next login, plus its ~/.zprofile hook
   [ "$DRY_RUN" = 1 ] && return 0
   rm -rf ~/.first-run && mkdir -p ~/.first-run && touch ~/.first-run/pending || { warn "Couldn't arm the first-run assistant (~/.first-run/pending)."; return 1; }
+  if grep -q "$FR_HOOK_RE" ~/.zprofile 2>/dev/null && ! grep -qxF "$FR_HOOK" ~/.zprofile; then   # replace an older hook
+    grep -v -e "$FR_HOOK_RE" -e '^# First-run setup assistant (does nothing once setup is finished)$' ~/.zprofile > ~/.zprofile.new &&
+      mv ~/.zprofile.new ~/.zprofile
+  fi
   grep -qF "$FR_HOOK" ~/.zprofile 2>/dev/null || printf '\n# First-run setup assistant (does nothing once setup is finished)\n%s\n' "$FR_HOOK" >> ~/.zprofile
+}
+agent_mode_off() {  # MAS_AGENT_MODE=no in config.env: phase 2 removes password-free sudo and ~/.claude,
+  # and without this the new owner's first `mac-ai-server install` would quietly turn both back on
+  local c="$HOME/.mac-ai-server/config.env"
+  grep -q '^MAS_AGENT_MODE=' "$c" 2>/dev/null && ! grep -qx 'MAS_AGENT_MODE=no' "$c" || return 0
+  run sed -i '' 's/^MAS_AGENT_MODE=.*/MAS_AGENT_MODE=no/' "$c" && [ "$DRY_RUN" != 1 ] &&
+    echo "Agent mode is now off in $c (the new owner can turn it on again; it takes effect at the next install)."
 }
 other_accounts() {  # other people's accounts on this Mac (handover only wipes this one)
   dscl . -list /Users UniqueID 2>/dev/null | awk -v me="$USER" '$2 >= 501 && $1 != me {print $1}' | paste -sd' ' -
@@ -432,6 +454,7 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
   run sudo rm -f "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
   # (On this model autorestart and autorestartatconnect are mutually exclusive; set only autorestart.)
   run sudo pmset -a autorestart 1
+  agent_mode_off
 
   # Pre-load the new owner's Wi-Fi so the Mac joins it by itself at their place. (networksetup
   # with a password crashes on macOS 27, so the password goes into the System keychain the way
@@ -469,14 +492,10 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
     echo "[dry-run] write ~/Desktop/Start Here.command"
   else
     arm_pending
-    # Desktop shortcut for anyone with a monitor. A new Terminal window already starts the
-    # assistant through ~/.zprofile, so this only runs it if that didn't just happen.
+    # Desktop shortcut for anyone with a monitor (the ~/.zprofile hook only starts it over SSH)
     cat > ~/Desktop/"Start Here.command" <<'EOF'
 #!/bin/zsh
-last=$(cat ~/.first-run/last-exit 2>/dev/null || echo 0)
-if [ -f ~/.first-run/pending ] && [ $(( $(date +%s) - last )) -gt 5 ]; then
-  ~/.local/bin/first-run-setup
-fi
+if [ -f ~/.first-run/pending ]; then ~/.local/bin/first-run-setup; else echo "Setup is already finished."; fi
 echo; read -r "?Press Enter to close this window."
 EOF
     chmod +x ~/Desktop/"Start Here.command"
