@@ -8,9 +8,11 @@ mas_die()  { printf '\033[1;31mxx  %s\033[0m\n' "$*" >&2; exit 1; }
 # mas_action <what> <where>: a manual step. Claude greps for this exact format.
 mas_action() { printf 'ACTION NEEDED: %s | %s\n' "$1" "$2"; }
 
-# mas_sanitize_host <name>: lowercase, spaces/underscores to hyphens, [a-z0-9-] only, max 63.
+# mas_sanitize_host <name>: lowercase, spaces/underscores to hyphens, [a-z0-9-] only,
+# max 63, no leading or trailing hyphen (trimmed after the cut).
 mas_sanitize_host() {
-  printf '%s' "$1" | tr '[:upper:] _' '[:lower:]--' | tr -cd 'a-z0-9-' | cut -c1-63
+  printf '%s' "$1" | tr '[:upper:] _' '[:lower:]--' | tr -cd 'a-z0-9-' | cut -c1-63 \
+    | sed -e 's/^-*//' -e 's/-*$//'
 }
 
 # mas_free_gb: free space on / in whole GB.

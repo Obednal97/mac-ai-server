@@ -16,7 +16,7 @@
 - Shell is `/bin/bash` 3.2: no associative arrays, no `${var,,}`, no `mapfile`. Avoid heredocs inside `$(...)`; use `read -d ''`.
 - Nothing before `30-homebrew` may need Homebrew, Python or Xcode tools.
 - Every module is safe to re-run. `mod_run` checks the current state before changing it.
-- Defaults (`config/defaults.env`): `MAS_HOSTNAME=ai-mini`, `MAS_MODE=auto`, `MAS_TAILSCALE=yes`, `MAS_AGENT_MODE=no`, `MAS_HANDOVER=no`, `MAS_MODEL=` (empty means the tier pick), `MAS_REMOVE_APPS=no`, `MAS_SUDO=terminal`.
+- Defaults (`config/defaults.env`): `MAS_AGENT_TOOLS=yes`, `MAS_PLUGINS="superpowers code-review frontend-design playwright"`, `MAS_SEARCH=duckduckgo`, `MAS_SEARXNG_URL=`, `MAS_HOSTNAME=ai-mini`, `MAS_MODE=auto`, `MAS_TAILSCALE=yes`, `MAS_AGENT_MODE=no`, `MAS_HANDOVER=no`, `MAS_MODEL=` (empty means the tier pick), `MAS_REMOVE_APPS=no`, `MAS_SUDO=terminal`.
 - `MAS_MODE` values: `desktop`, `laptop-daily`, `laptop-server`. `auto` resolves to `desktop` when `MAS_LAPTOP=0`, else the installer asks (Claude asks first and writes it).
 - Manual steps are printed as exactly `ACTION NEEDED: <what> | <where>` (Claude greps for this).
 - No personal data anywhere: no emails, account names, Wi-Fi names (other than the placeholder `MyWiFi`), IP addresses (other than `172.20.10.2` and RFC docs ranges), claude.ai links or real passwords.
@@ -165,6 +165,29 @@
 - [ ] **Step 3:** Implement. Port the kit's `bin/` files, generating model and context values from the plan instead of hard-coding them. Install Claude Code with `curl -fsSL https://claude.ai/install.sh | bash` only if `claude` is missing.
 - [ ] **Step 4:** Run. Expected: PASS. Commit: `claude code module`.
 
+### Task 6b: Module: agent tools (browser, fetch, search, plugins)
+
+**Files:**
+- Create: `modules/65-agent-tools.sh`, `tests/test_mod_agent_tools.sh`, `docs/` additions are left to Task 12
+
+**Interfaces:**
+- Consumes: `MAS_AGENT_TOOLS` (yes), `MAS_PLUGINS` (`superpowers code-review frontend-design playwright`), `MAS_SEARCH` (`duckduckgo`), `MAS_SEARXNG_URL`; Homebrew from Task 5; `claude` from Task 6.
+- Produces: user-scope MCP servers named `playwright`, `fetch`, `search`; the plugins installed.
+
+- [ ] **Step 1:** Verify on the real Mac with read-only or `--help` commands only. Record the exact commands in the report:
+  - the `claude mcp add --scope user` syntax;
+  - the `claude plugin` install syntax and marketplace name;
+  - the package names for the fetch MCP and a DuckDuckGo search MCP (prefer official or widely used ones runnable via `uvx`/`npx`);
+  - the Playwright MCP flags for headless + isolated + bundled chromium.
+- [ ] **Step 2:** Write tests against fakes:
+  - with defaults, `claude mcp add --scope user playwright …` (with the headless flag), `… fetch …` and `… search …` are logged, plus one plugin install per name in `MAS_PLUGINS`;
+  - `MAS_SEARCH=searxng MAS_SEARXNG_URL=http://localhost:8888` registers the SearXNG server with that URL;
+  - `MAS_SEARCH=none` registers no search server;
+  - `MAS_AGENT_TOOLS=no` makes `mod_applies` return 1;
+  - a plugin already listed by `claude plugin list` isn't reinstalled;
+  - no path under `~/.claude/plugins/cache` is written.
+- [ ] **Step 3:** Run. Expected: FAIL. Implement. Run. Expected: PASS. Commit: `agent tools module`.
+
 ### Task 7: Module: phone-tether Wi-Fi setup
 
 **Files:**
@@ -203,6 +226,23 @@
 - [ ] **Step 3:** Implement, porting `tune-ai-server.sh` and `extra-server-setup.sh` (sudoers part only).
 - [ ] **Step 4:** Run. Expected: PASS. Commit: `tuning and agent mode modules`.
 
+### Task 8b: Module: guided permissions
+
+**Files:**
+- Create: `modules/95-permissions.sh`, `tests/test_mod_permissions.sh`
+
+**Interfaces:**
+- Consumes: `MAS_MODE`, `MAS_LAPTOP`; WifiScan status from Task 7.
+- Produces: `ACTION NEEDED` lines; `mac-ai-server permissions` (Task 10) calls this module's `mod_run`.
+
+- [ ] **Step 1:** Write tests:
+  - the warning line containing "choose Later" is printed before any `open x-apple.systempreferences:` call;
+  - a desktop gets four ACTION lines (Full Disk Access, App Management, Remote Login full disk access, Location);
+  - laptop-daily adds Accessories;
+  - laptop-server adds Accessories and Charge Limit;
+  - `mod_check` reports Full Disk Access `ok` when the protected test path is readable (fake) and `fail` with the fix when not.
+- [ ] **Step 2:** Run. Expected: FAIL. Implement (pane URLs verified on the real Mac with `open -g` only if harmless; otherwise documented ones). Run. Expected: PASS. Commit: `guided permissions module`.
+
 ### Task 9: Handover module with the seven fixes
 
 **Files:**
@@ -231,6 +271,7 @@
 **Interfaces:**
 - Consumes: `install.sh` flags, `lib/plan.sh`, handover scripts.
 - Produces:
+  - `permissions`: runs `95-permissions` `mod_run` then its `mod_check`.
   - `update`: `git -C ~/mac-ai-server pull --ff-only`, then `install.sh --yes`, then compares the installed default model with `MAS_PRIMARY` and prints a suggestion.
   - `models list|add-fast|remove <tag>|default <tag>`: `default` rewrites `claude-local`/`chat` and `MAS_MODEL` in config.env.
   - `doctor [--report]`: `--report` drops hostname, user and IPs and keeps chip/RAM/macOS/check results.

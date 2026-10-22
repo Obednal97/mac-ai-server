@@ -1,1 +1,11 @@
-fake
+#!/bin/bash
+# Fake tailscale (its own script, not a link to ./fake). Logs every call.
+# status: rc FAKE_TS_STATUS_RC (default 1 = signed out); up: prints FAKE_TS_UP_OUT;
+# ip: prints a documentation-range address.
+if [ -n "${FAKE_LOG:-}" ]; then echo "tailscale $*" >> "$FAKE_LOG"; fi
+case "${1:-}" in
+  status) exit "${FAKE_TS_STATUS_RC:-1}" ;;
+  up) [ -n "${FAKE_TS_UP_OUT:-}" ] && printf '%s\n' "$FAKE_TS_UP_OUT"; exit 0 ;;
+  ip) echo 100.64.0.1; exit 0 ;;
+esac
+exit 0

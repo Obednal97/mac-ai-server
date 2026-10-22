@@ -12,6 +12,10 @@ assert_eq "$(mas_sanitize_host "ai_mini's")" "ai-minis" "sanitize underscore and
 long="$(printf 'a%.0s' $(seq 1 70))"
 out="$(mas_sanitize_host "$long")"
 assert_eq "${#out}" "63" "sanitize cuts to 63"
+assert_eq "$(mas_sanitize_host "  -My Mac- ")" "my-mac" "sanitize trims edge hyphens"
+cut_edge="$(printf 'a%.0s' $(seq 1 62))-bcd"
+assert_eq "$(mas_sanitize_host "$cut_edge")" "$(printf 'a%.0s' $(seq 1 62))" "sanitize trims hyphen left by the 63 cut"
+assert_eq "$(mas_sanitize_host "---")" "" "sanitize all hyphens gives empty"
 
 assert_eq "$(mas_action "Allow" "Mac screen")" "ACTION NEEDED: Allow | Mac screen" "action line"
 

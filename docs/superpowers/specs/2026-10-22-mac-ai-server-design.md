@@ -27,6 +27,9 @@ A public GitHub repo that turns a fresh Apple Silicon Mac into an always-on loca
 | Updates | `mac-ai-server update`, run only when the user asks. Pulls the repo, re-runs the installer, suggests a model change if the tier recommendation changed |
 | Models | Download the tier's primary model only; offer the fast alternative at the end; `mac-ai-server models` manages them later |
 | Handover | Optional module, off by default |
+| Agent tools | Installed by default, skippable: Playwright MCP (headless Chromium), local web fetch MCP, web search MCP, and the plugins superpowers, code-review, frontend-design and playwright |
+| Web search | DuckDuckGo MCP by default (no key). SearXNG documented as optional (`MAS_SEARCH=searxng`, `MAS_SEARXNG_URL`). Users can add other engines (Brave, Tavily, …) as user-scope MCP servers; docs show how |
+| macOS permissions | One guided step near the end (`95-permissions`, re-runnable as `mac-ai-server permissions`) opens each System Settings page and says which switch to turn on |
 | MacBooks | Two modes the user picks: "daily laptop" and "laptop as server" |
 | Publishing | Repo created private on the owner's GitHub; made public after the owner reviews it. Commits use the GitHub no-reply address |
 | Licence | MIT |
@@ -53,8 +56,10 @@ mac-ai-server/
 │   ├── 50-models.sh          tier model download
 │   ├── 60-claude.sh          claude-local, chat, tmux session, Remote Control loop, welcome screen
 │   ├── 70-netsetup.sh        phone-tether Wi-Fi setup page and WifiScan.app
+│   ├── 65-agent-tools.sh     Playwright MCP, fetch MCP, search MCP, plugins (default on, skippable)
 │   ├── 80-tuning.sh          GPU wired limit, open-file limit, optional preinstalled-app removal
-│   └── 90-agent-mode.sh      opt-in only
+│   ├── 90-agent-mode.sh      opt-in only
+│   └── 95-permissions.sh     guided System Settings walkthrough + checks
 ├── handover/            prepare-handover.sh (local, --remote, --phase1, --phase2, --dry-run), first-run-setup
 ├── bin/ launchagents/ netsetup/   files that the modules install
 ├── docs/                guides (section 7)
@@ -133,6 +138,28 @@ mac-ai-server/
 - Docs warn that MacBook Airs throttle under sustained load, and that a laptop doesn't power itself back on after a full outage.
 
 **All Macs:** the phone-tether Wi-Fi setup service.
+
+## 5b. Agent tools and permissions
+
+**Why:** web search and web fetch run on Anthropic's servers, so `claude-local` (Ollama backend) lacks them. Plan mode, tasks, worktrees and subagents are Claude Code features and work with either backend. Plugins are instruction files and work with any model.
+
+**65-agent-tools** (`MAS_AGENT_TOOLS=yes` default; `MAS_PLUGINS="superpowers code-review frontend-design playwright"`; `MAS_SEARCH=duckduckgo|searxng|none`):
+- Node via Homebrew; Playwright MCP registered with `claude mcp add --scope user` using headless, isolated flags, plus `npx playwright install chromium`. Never edit plugin cache files.
+- Fetch MCP server (HTML → markdown) at user scope.
+- Search MCP: DuckDuckGo by default. `searxng` registers a SearXNG MCP pointing at `MAS_SEARXNG_URL`. Other engines: documented `claude mcp add --scope user …` recipes.
+- Plugins installed with Claude Code's plugin CLI from the official marketplace; already-installed plugins are left alone.
+- `mod_check`: each MCP server is registered and starts; each plugin is installed; a headless browser opens a local page.
+- Exact package names and CLI syntax are verified during implementation; nothing unverified ships.
+
+**95-permissions** (all Macs; laptop-only rows only on MacBooks): opens each pane with `x-apple.systempreferences:` URLs and prints one `ACTION NEEDED` line per switch:
+- Full Disk Access → the terminal app running the installer;
+- App Management → the same terminal app;
+- Remote Login → "Allow full disk access for remote users";
+- Location Services → Wi-Fi Setup;
+- Accessories → "Automatically allow when unlocked" (MacBooks);
+- Battery → Charge Limit 80% (laptop-server).
+
+It first warns: macOS may say the terminal needs to quit; choose Later. `mod_check` verifies what can be verified (Full Disk Access by reading a protected path, WifiScan authorisation) and lists the rest as manual.
 
 ## 6. Components carried over from the proven kit
 
