@@ -75,7 +75,10 @@ You'll see the **welcome screen**:
 
 **Always work inside tmux over SSH.** Run `tmux new -As main`. If the connection drops, everything keeps running, and the same command reconnects you.
 
-This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. (The installer makes auto-login go straight to the desktop, not the lock screen, so the keychain is unlocked after a restart too.)
+This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. macOS keeps the keychain's locked or unlocked state **per login session**: auto-login unlocks it for the desktop (and tmux), but every SSH login starts with it locked. So each SSH login unlocks it for itself (a line in `~/.zprofile` runs `ai-keychain-unlock --login`):
+- **With password-free admin (agent mode),** it does it silently, using the auto-login password macOS already keeps in `/etc/kcpassword` (readable only with admin rights). No new copy of the password is made, and it reaches the keychain through standard input, never a command line.
+- **Otherwise** it asks for your Mac password once per SSH login (press Enter to skip).
+- **Any time:** `mac-ai-server unlock` does the same, and `doctor` says when the keychain is locked in your session.
 
 **Keychain-free login (optional).** `mac-ai-server token set` runs `claude setup-token` and saves the long-lived token in `~/.mac-ai-server/claude-token`, readable only by you. New shells, SSH logins and tmux windows then use it (`CLAUDE_CODE_OAUTH_TOKEN`), even when the keychain is locked. Remote Control and `claude-local` ignore it: Remote Control needs the normal claude.ai login. `mac-ai-server token clear` removes it. A handover deletes it.
 
@@ -93,6 +96,8 @@ To see the Mac's screen from another Mac:
 
 On other devices, use any VNC app.
 
-The installer lets your account connect. On a fresh Mac, the Screen Sharing service can be running while nobody is allowed in, so every connection is refused. `doctor` checks that it answers and that you're allowed. macOS 26 and 27 may only let Screen Sharing be **switched on** at the Mac itself (System Settings > General > Sharing). If the install prints `ACTION NEEDED: Turn on Screen Sharing`, do that once with a keyboard and screen.
+The installer starts Screen Sharing and lets your account connect, but **on macOS 12.1 and later no command can fully switch it on**. A service started from the command line accepts the login and then refuses with "Screen Sharing is not permitted on …". Only the System Settings switch (or an MDM server's "Enable Remote Desktop" command) gives it permission to see the screen and control the mouse and keyboard, and those permissions live in a database that System Integrity Protection guards even from administrators. So:
+- **While you still have a screen and keyboard at setup,** switch Screen Sharing on in System Settings > General > Sharing. It then keeps working headless, after restarts too.
+- **Already headless?** You need a screen and keyboard (or a device that acts as a USB keyboard and mouse) for one minute to switch it off and on there.
 
 Screen Sharing is how you click the macOS prompts on a Mac with no monitor, such as the Location "Allow" box.

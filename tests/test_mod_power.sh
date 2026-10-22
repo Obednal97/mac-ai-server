@@ -60,7 +60,8 @@ assert_logged '^pmset -a powermode 2'
 # idempotent: already enabled -> kcpassword not rewritten
 FAKE_OUT_defaults="$ME" runfn mod_run MAS_MODE=desktop MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
 assert_ok "re-run keeps existing auto-login quiet" has "Auto-login already"
-assert_logged '^defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false'
+assert_not_logged 'ScreenLocked'
+assert_not_logged 'keychain-unlock'
 
 # FileVault on: auto-login skipped with a warning
 rm -f "$MAS_SYSROOT/etc/kcpassword"
@@ -111,7 +112,7 @@ assert_not_logged 'askForPassword'
 rm -f "$MAS_SYSROOT/etc/kcpassword"
 FAKE_OUT_fdesetup="FileVault is On." runfn mod_run MAS_MODE=laptop-server MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
 assert_ok "server: FileVault warning" has "FileVault"
-assert_not_logged 'autoLoginUser'
+assert_not_logged 'defaults write .*autoLoginUser'
 assert_fails "server: no kcpassword with FileVault" test -e "$MAS_SYSROOT/etc/kcpassword"
 runfn mod_run MAS_MODE=laptop-server
 assert_ok "server: charge limit action" has "ACTION NEEDED: Set Charge Limit to 80%"
@@ -135,17 +136,13 @@ assert_eq "$?" 0 "server check passes"
 FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
 assert_eq "$?" 1 "server check fails without auto-login"
 assert_ok "server check names auto-login" has "fail auto-login is off"
-# auto-login on but stopping at the lock screen (keychain stays locked): a fail with the fix
-cat > "$T_TMP/defaults" <<'FAKE'
-#!/bin/bash
-echo "defaults $*" >> "$FAKE_LOG"
-case "$*" in *autoLoginUserScreenLocked*) echo 1 ;; *autoLoginUser*) echo "$FAKE_ME" ;; esac
-FAKE
-chmod +x "$T_TMP/defaults"
-PATH="$T_TMP:$PATH" FAKE_ME="$ME" FAKE_OUT_pmset=$'Sleep On Power: \n sleep 0\n autorestart 1' runfn mod_check MAS_MODE=desktop
-assert_eq "$?" 1 "check fails when auto-login lands on the lock screen"
-assert_ok "lock-screen fail names the fix" has "autoLoginUserScreenLocked -bool false"
-rm -f "$T_TMP/defaults"
+# the old root keychain service (local.keychain-unlock) is removed on any run
+KU_BIN="$MAS_SYSROOT/usr/local/libexec/mac-ai-server/keychain-unlock"; KU_PL="$MAS_SYSROOT/Library/LaunchDaemons/local.keychain-unlock.plist"
+mkdir -p "$(dirname "$KU_BIN")" "$(dirname "$KU_PL")"; touch "$KU_BIN" "$KU_PL"
+runfn mod_run MAS_MODE=laptop-daily
+assert_logged '^sudo launchctl bootout system/local.keychain-unlock'
+assert_fails "old service plist removed" test -e "$KU_PL"
+assert_fails "old service script removed" test -e "$KU_BIN"
 FAKE_OUT_fdesetup="FileVault is On." FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
 assert_eq "$?" 0 "server check ok with FileVault on (auto-login skipped)"
 FAKE_OUT_pmset=$' sleep 0' runfn mod_check MAS_MODE=laptop-server

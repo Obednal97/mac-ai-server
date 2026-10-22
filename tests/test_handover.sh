@@ -528,10 +528,6 @@ assert_ok "cut-off phase 1 still armed the assistant" test -f "$HOME/.first-run/
 assert_fails "with no finished steps left over" test -e "$HOME/.first-run/done-password"
 assert_ok "and its login hook" grep -q 'first-run-setup' "$HOME/.zprofile"
 rm -rf "$CUT"
-# phase 1: auto-login goes straight to the desktop (a lock screen leaves the keychain locked)
-fresh
-HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
-assert_logged '^defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false'
 # phase 1 names other people's accounts (the handover only clears the owner's)
 fresh
 FAKE_DSCL_USERS=$'root 0\n'"$ME 501"$'\nsam 502' HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
