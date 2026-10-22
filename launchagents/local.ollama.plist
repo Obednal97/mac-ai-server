@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.ollama</string>
+  <key>ProgramArguments</key>
+  <array><string>/opt/homebrew/opt/ollama/bin/ollama</string><string>serve</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OLLAMA_FLASH_ATTENTION</key><string>1</string>
+    <key>OLLAMA_KV_CACHE_TYPE</key><string>q8_0</string>
+    <!-- How long idle models stay in memory: long on a server, short on a laptop in daily use -->
+    <key>OLLAMA_KEEP_ALIVE</key><string>__KEEP_ALIVE__</string>
+    <!-- Context length for this Mac's memory tier (enough for coding agents) -->
+    <key>OLLAMA_CONTEXT_LENGTH</key><string>__CONTEXT__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>WorkingDirectory</key><string>/opt/homebrew/var</string>
+  <key>StandardOutPath</key><string>/opt/homebrew/var/log/ollama.log</string>
+  <key>StandardErrorPath</key><string>/opt/homebrew/var/log/ollama.log</string>
+</dict>
+</plist>
