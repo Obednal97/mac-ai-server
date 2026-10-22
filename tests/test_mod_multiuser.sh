@@ -54,6 +54,23 @@ assert_ok "marketplace manifest" grep -q '"name": "mac-ai-server-shared"' "$MARK
 assert_eq "$(stat -f %Lp "$MARKET/shared-skills/skills/notes/SKILL.md")" 644 "shared skill readable"
 assert_ok "reports what's shared" has "Plugins shared with every account: superpowers, tool"
 
+# people who already have Claude Code get their own copy of each shared plugin (not you, not someone without claude)
+W="$T_TMP/wrap"; mkdir -p "$W" "$T_TMP/ann/.local/bin" "$T_TMP/bob"
+ln -sf "$TESTS_DIR/fakes/claude" "$T_TMP/ann/.local/bin/claude"
+cat > "$W/dscl" <<WRAP
+#!/bin/bash
+case "\$*" in
+  *-list*) printf '%s\\n' "$(id -un) 501" "ann 502" "bob 503" "_sys 200" ;;
+  *ann*) echo "NFSHomeDirectory: $T_TMP/ann" ;;
+  *bob*) echo "NFSHomeDirectory: $T_TMP/bob" ;;
+esac
+WRAP
+chmod +x "$W/dscl"
+PATH="$W:$PATH" runfn mod_run MAS_MULTIUSER=yes
+assert_logged '^claude plugin install superpowers@anthropic-plugin-directory$'
+assert_ok "says who got them" has "Shared plugins installed for: ann$"
+assert_eq "$(grep -c '^claude plugin install' "$FAKE_LOG")" 3 "one install per shared plugin, for ann only"
+
 runfn mod_check MAS_MULTIUSER=yes
 assert_eq "$?" 0 "check ok"
 assert_not_logged '^sudo'

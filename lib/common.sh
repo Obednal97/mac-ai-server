@@ -15,6 +15,25 @@ mas_sanitize_host() {
     | sed -e 's/^-*//' -e 's/-*$//'
 }
 
+# mas_mu_dropin: the machine-wide Claude Code settings that share the owner's plugins (85-multiuser).
+mas_mu_dropin() { printf '%s' "${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"; }
+
+# mas_mu_install_plugins <account> <home>: give that account its own copy of each shared plugin.
+# The machine-wide settings only switch plugins on; they don't install them (on a real Mac a new
+# account had none, even after starting claude). Installing needs no Claude login, and a plugin
+# that's already installed is left as it is.
+mas_mu_install_plugins() {
+  local u="$1" claude="$2/.local/bin/claude" p bad=""
+  [ -f "$(mas_mu_dropin)" ] && sudo test -x "$claude" || return 0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    ( cd / && sudo -u "$u" -H "$claude" plugin install "$p" </dev/null >/dev/null 2>&1 ) || bad="$bad $p"
+  done < <(/usr/bin/python3 -I -c 'import json, sys
+for k, v in sorted((json.load(open(sys.argv[1])).get("enabledPlugins") or {}).items()):
+    if v is True: print(k)' "$(mas_mu_dropin)" 2>/dev/null)
+  [ -z "$bad" ] || { mas_warn "Couldn't install these shared plugins for $u:$bad. They can run: claude plugin install <name>"; return 1; }
+}
+
 # mas_free_gb: free space on / in whole GB.
 mas_free_gb() {
   df -k / | awk 'NR==2{printf "%d\n", $4/1048576}'

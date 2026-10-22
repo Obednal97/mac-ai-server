@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake wg (its own script): genkey prints a new fake private key, pubkey derives a fake public key
+# from stdin, everything else is only logged.
+if [ -n "${FAKE_LOG:-}" ]; then echo "wg $*" >> "$FAKE_LOG"; fi
+case "${1:-}" in
+  genkey) printf 'PRIV%s%s=\n' "$$" "$RANDOM" ;;
+  pubkey) read -r k; printf 'PUB-%s\n' "$k" ;;
+esac
+exit 0

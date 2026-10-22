@@ -24,6 +24,8 @@ eval "$_mas_env"
 unset _mas_env
 # shellcheck source=lib/common.sh
 . "$MAS_ROOT/lib/common.sh"
+# shellcheck source=lib/wireguard.sh
+. "$MAS_ROOT/lib/wireguard.sh"
 
 MAS_CONFIG="$HOME/.mac-ai-server/config.env"
 MAS_INSTALL_SH="${MAS_INSTALL_SH:-$MAS_ROOT/install.sh}"
@@ -42,7 +44,7 @@ mac-ai-server: look after your AI server
   mac-ai-server models remove <m>    Delete a downloaded model
   mac-ai-server tools                Show, add or remove developer tools (tools add <name>)
   mac-ai-server permissions          Walk through the macOS permissions
-  mac-ai-server users                Show the accounts; users add <name> / users remove <name>
+  mac-ai-server users                Show the accounts; users add <name> [--wireguard] / card / remove
   mac-ai-server token set            Log Claude Code in without the keychain (claude setup-token)
   mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
   mac-ai-server install [options]    Run the installer again (--plan shows what it would do)
@@ -254,6 +256,79 @@ valid_user() { case "$1" in ""|[!a-z]*|*[!a-z0-9._-]*) return 1 ;; *) [ "${#1}" 
 user_home() { dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{print $2}'; }
 is_admin() { dseditgroup -o checkmember -m "$1" admin >/dev/null 2>&1; }
 people() { dscl . -list /Users UniqueID 2>/dev/null | awk '$2 >= 501 {print $1}'; }
+dq() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }   # quote for dscl's stdin
+USERS_DIR="$HOME/.mac-ai-server/users"   # each person's info pack, private to you
+# A fixed amount of randomness per piece (an endless `tr </dev/urandom | head` hangs where SIGPIPE is ignored).
+pw_seg() {
+  local s=""
+  while [ "${#s}" -lt 4 ]; do s="$s$(head -c 64 /dev/urandom | LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"; done
+  printf '%s' "${s:0:4}"
+}
+temp_pw() { printf '%s-%s-%s' "$(pw_seg)" "$(pw_seg)" "$(pw_seg)"; }
+# This Mac's full Tailscale name (MagicDNS), or empty
+ts_name() {
+  "${MAS_BREW_PREFIX:-/opt/homebrew}/bin/tailscale" status --json 2>/dev/null \
+    | /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null
+}
+private_write() {  # private_write <file>: stdin to a new 0600 file
+  rm -f "$1"; ( umask 077; cat > "$1" )
+}
+
+# render_card <name>: the info pack's card, from what users add saved in $USERS_DIR/<name>
+render_card() {
+  local name="$1" d="$USERS_DIR/$1" pw method link tsn host conf
+  pw="$(cat "$d/temp-password" 2>/dev/null)"; method="$(cat "$d/method" 2>/dev/null)"; link="$(cat "$d/tailscale-link" 2>/dev/null)"
+  host="$(scutil --get LocalHostName 2>/dev/null)"; host="${host:-this-mac}"
+  cat <<CARD
+YOUR ACCOUNT ON THE AI MAC "$host"
+
+Your account:        $name
+Temporary password:  ${pw:-(ask whoever set it up)}
+The first time you log in over SSH, you're asked to choose your own password.
+(Only using Screen Sharing? Change it in System Settings > Users & Groups.)
+
+CARD
+  if [ "$method" = wireguard ]; then
+    conf="$name-$host.conf"
+    cat <<CARD
+1. Install the free WireGuard app: https://www.wireguard.com/install/
+   (no account or sign-up needed)
+2. Add the tunnel: in WireGuard choose "Import tunnel(s) from file" and pick
+   the file $conf that came with this card. On a phone, scan the QR code
+   ($name-$host.png) instead.
+3. Switch the tunnel on in the WireGuard app, then connect from Terminal:
+     ssh $name@$(mas_wg_net).1
+   The first time, it asks whether to trust this computer: type yes.
+   "Connection timed out" means the tunnel is off, or tell whoever set it up.
+   Screen Sharing (Mac: Finder > Go > Connect to Server):  vnc://$(mas_wg_net).1
+   The tunnel only reaches this Mac, nothing else on its network.
+CARD
+  else
+    tsn="$(cat "$d/tailscale-name" 2>/dev/null)"; tsn="${tsn:-$host}"
+    [ -n "$link" ] || link="(you will get the link separately)"
+    cat <<CARD
+1. Install Tailscale: https://tailscale.com/download
+   Sign in with YOUR OWN account (free; Google, Apple, GitHub or email).
+2. Open this invite link and accept it, to add the Mac to your Tailscale:
+   $link
+   You only get access to this one Mac.
+3. With Tailscale switched on, connect from Terminal:
+     ssh $name@$tsn
+   The first time, it asks whether to trust this computer: type yes.
+   Screen Sharing (Mac: Finder > Go > Connect to Server):  vnc://$tsn
+CARD
+  fi
+  cat <<CARD
+
+Once you're in:
+  claude          Claude Code. Log in with your own Claude account the first time.
+  claude-local    Claude Code on this Mac's own AI model (private, free, slower)
+  chat            a quick chat with the local model
+  tmux new -As main   keeps your work running when you disconnect (Ctrl-b d to leave it)
+
+Your files, projects and Claude login are private to you. The AI models are shared.
+CARD
+}
 
 users_list() {
   local u tag
@@ -261,24 +336,43 @@ users_list() {
   for u in $(people); do
     tag="standard"; is_admin "$u" && tag="administrator"
     [ "$u" = "$(id -un)" ] && tag="$tag, you"
+    [ -f "$USERS_DIR/$u/method" ] && tag="$tag, via $(cat "$USERS_DIR/$u/method")"
     printf '  %s (%s)\n' "$u" "$tag"
   done
   [ "${MAS_MULTIUSER:-no}" = yes ] || echo "Multi-user mode is off. mac-ai-server users add <name> turns it on."
 }
 
 users_add() {
-  local name="${1:-}" full="${2:-}" h g host
+  local name="" full="" method=tailscale a h g out pw throw d conf host link
+  for a in "$@"; do
+    case "$a" in
+      --wireguard) method=wireguard ;;
+      --tailscale) method=tailscale ;;
+      -*) mas_die "Unknown option '$a'. Try: mac-ai-server users add <name> [\"Full Name\"] [--wireguard]" ;;
+      *) if [ -z "$name" ]; then name="$a"; else full="$a"; fi ;;
+    esac
+  done
   valid_user "$name" || mas_die "Give a short account name: lower-case letters, numbers, . _ or -, starting with a letter. Like: mac-ai-server users add sam"
   id "$name" >/dev/null 2>&1 && mas_die "There's already an account called $name."
+  if [ "$method" = wireguard ] && { [ "${MAS_WIREGUARD:-no}" != yes ] || [ -z "${MAS_WG_ENDPOINT:-}" ] || ! sudo test -f "$(mas_wg_conf)"; }; then
+    mas_die "WireGuard isn't set up. Set MAS_WIREGUARD=yes and MAS_WG_ENDPOINT in ~/.mac-ai-server/config.env, run: mac-ai-server install --only wireguard, then try again."
+  fi
   if [ "${MAS_MULTIUSER:-no}" != yes ]; then
     echo "Turning on multi-user mode first (your home folder becomes private, claude-local and chat are shared)."
     MAS_MULTIUSER=yes "$MAS_INSTALL_SH" --yes --only claude,multiuser || mas_die "Couldn't turn on multi-user mode, so no account was added."
     config_set MAS_MULTIUSER yes
   fi
-  echo
-  echo "Choose a temporary password for $name and tell them it. They pick their own at their first login."
-  sudo sysadminctl -addUser "$name" -fullName "${full:-$name}" -password - || mas_die "Couldn't create the account $name."
+  # Created with a throwaway password, which is replaced at once through dscl's standard input,
+  # so the password they get never appears in a command line.
+  throw="$(temp_pw)$(temp_pw)"
+  sudo sysadminctl -addUser "$name" -fullName "${full:-$name}" -password "$throw" >/dev/null 2>&1
+  throw=""
   id "$name" >/dev/null 2>&1 || mas_die "macOS didn't create the account $name."
+  pw="$(temp_pw)"
+  # As root, dscl sets a password without the old one. It answers just "Goodbye" when it worked
+  # (TERM=dumb: with a terminal type it doesn't know, like xterm-ghostty, it also prints a warning).
+  out="$(printf 'passwd %s %s\n' "$(dq "/Users/$name")" "$(dq "$pw")" | sudo env TERM=dumb dscl . 2>&1)"
+  [ "$out" = Goodbye ] || mas_die "Created $name, but couldn't set their password. Set one with: sudo passwd $name"
   sudo createhomedir -c -u "$name" >/dev/null 2>&1 || true
   h="$(user_home "$name")"
   # Private, like yours: macOS makes new home folders readable by every account.
@@ -288,6 +382,7 @@ users_add() {
     dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -a "$name" -t user "$g"
   done
   echo "Installing Claude Code for $name..."
+  cd / || true   # their shell starts here: your home folder is private to them
   # shellcheck disable=SC2016  # runs in the new account's own shell
   sudo -u "$name" -H /bin/bash -c '
     cd "$HOME" || exit 1
@@ -308,16 +403,50 @@ if [ -t 1 ]; then
 fi
 BLOCK
   '
-  host="$(scutil --get LocalHostName 2>/dev/null)"
+  mas_mu_install_plugins "$name" "$h" || true
+
+  # The info pack: card, plus their WireGuard file and QR code. Private to you; send it privately.
+  d="$USERS_DIR/$name"; mkdir -p "$d" && chmod 700 "$USERS_DIR" "$d"
+  printf '%s\n' "$pw" | private_write "$d/temp-password"; pw=""
+  printf '%s\n' "$method" | private_write "$d/method"
+  host="$(scutil --get LocalHostName 2>/dev/null)"; host="${host:-this-mac}"
+  if [ "$method" = wireguard ]; then
+    conf="$(mas_wg_add_peer "$name")" || mas_die "Created $name, but couldn't give them a WireGuard key. Try: mac-ai-server users remove $name, then add them again."
+    printf '%s\n' "$conf" | private_write "$d/$name-$host.conf"; conf=""
+    "${MAS_BREW_PREFIX:-/opt/homebrew}/bin/qrencode" -o "$d/$name-$host.png" -r "$d/$name-$host.conf" 2>/dev/null && chmod 600 "$d/$name-$host.png"
+  else
+    a="$(ts_name)"; [ -n "$a" ] && printf '%s\n' "$a" | private_write "$d/tailscale-name"
+    echo
+    echo "Now share this Mac with them in Tailscale. They sign in with their own account and only see this Mac:"
+    echo "  login.tailscale.com/admin/machines > $(cat "$d/tailscale-name" 2>/dev/null || echo "$host") > ... > Share... > copy the invite link"
+    read -r -p "Paste the invite link (or press Enter to add it later): " link || link=""
+    case "$link" in https://*) printf '%s\n' "$link" | private_write "$d/tailscale-link" ;; esac
+  fi
+  render_card "$name" | private_write "$d/card.txt"
   echo
-  echo "Done. $name can now log in:"
-  echo "  On the same network:  ssh $name@${host:-this-mac}.local   (or Screen Sharing to ${host:-this-mac}.local)"
-  echo "  From anywhere:        share this Mac with them in Tailscale (login.tailscale.com > Machines > ... > Share)"
-  echo "They use the same AI models as you (nothing downloads twice), but can't see your files or projects."
+  render_card "$name"
+  echo
+  echo "Saved to $d (only you can read it). Send it to $name privately."
+  [ "$method" = wireguard ] && echo "Include the file $d/$name-$host.conf (or the QR code next to it)."
+  [ "$method" = tailscale ] && [ ! -f "$d/tailscale-link" ] && echo "When you have the invite link: mac-ai-server users card $name --link <link>"
+  return 0
+}
+
+users_card() {
+  local name="${1:-}" d
+  valid_user "$name" || mas_die "Say whose card to show. Like: mac-ai-server users card sam"
+  d="$USERS_DIR/$name"
+  [ -d "$d" ] || mas_die "No info pack for $name (it's made by mac-ai-server users add)."
+  if [ "${2:-}" = --link ]; then
+    case "${3:-}" in https://*) printf '%s\n' "$3" | private_write "$d/tailscale-link" ;; *) mas_die "Give the Tailscale invite link, starting with https://" ;; esac
+  fi
+  render_card "$name" | private_write "$d/card.txt"
+  render_card "$name"
+  echo; echo "(Saved to $d/card.txt. If $name has changed their password, the temporary one no longer works.)"
 }
 
 users_remove() {
-  local name="${1:-}" ok
+  local name="${1:-}" ok method out g
   valid_user "$name" || mas_die "Say which account to remove. Like: mac-ai-server users remove sam"
   people | grep -qx "$name" || mas_die "There's no person's account called $name (system accounts can't be removed here)."
   [ "$name" = "$(id -un)" ] && mas_die "That's your own account."
@@ -325,8 +454,19 @@ users_remove() {
   echo "This deletes the account $name and everything in its home folder. It can't be undone."
   read -r -p "Type the account name to confirm: " ok
   [ "$ok" = "$name" ] || mas_die "Not confirmed; nothing was changed."
-  sudo sysadminctl -deleteUser "$name" || mas_die "Couldn't remove $name."
+  method="$(cat "$USERS_DIR/$name/method" 2>/dev/null)"
+  # Revoke a WireGuard key whenever there is one, info pack or not
+  mas_wg_remove_peer "$name" || mas_die "Couldn't revoke $name's WireGuard key, so nothing else was changed."
+  # sysadminctl leaves the name in these groups, which would let a later account of that name in
+  for g in com.apple.access_ssh com.apple.access_screensharing; do
+    dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -d "$name" -t user "$g" >/dev/null 2>&1
+  done
+  # sysadminctl logs each step to stderr; only shown when it fails
+  out="$(sudo sysadminctl -deleteUser "$name" 2>&1)"
+  if id "$name" >/dev/null 2>&1; then printf '%s\n' "$out" >&2; mas_die "Couldn't remove $name."; fi
+  rm -rf "${USERS_DIR:?}/$name"
   echo "Removed $name."
+  [ "$method" = wireguard ] || echo "If you shared this Mac with them in Tailscale, also stop sharing it: login.tailscale.com/admin/machines"
 }
 
 cmd_users() {
@@ -334,8 +474,9 @@ cmd_users() {
   case "$sub" in
     list) users_list ;;
     add) users_add "$@" ;;
+    card) users_card "$@" ;;
     remove) users_remove "$@" ;;
-    *) mas_die "Unknown users option '$sub'. Try: list, add <name> [\"Full Name\"], remove <name>" ;;
+    *) mas_die "Unknown users option '$sub'. Try: list, add <name> [\"Full Name\"] [--wireguard], card <name>, remove <name>" ;;
   esac
 }
 

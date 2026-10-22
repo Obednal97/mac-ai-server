@@ -196,9 +196,17 @@ if [ "$MODE" = root ]; then
   # The new owner's first-run step 6 shares their own again if they want it.
   for p in "$SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json" \
            "$SYSROOT/Library/Application Support/mac-ai-server/shared-claude" \
-           "$SYSROOT/usr/local/bin/claude-local" "$SYSROOT/usr/local/bin/chat"; do
+           "$SYSROOT/usr/local/bin/claude-local" "$SYSROOT/usr/local/bin/chat" \
+           "$H/.mac-ai-server/users"; do
     probe "$p"; { [ -e "$p" ] || [ -L "$p" ]; } && r rm -rf "$p"
   done
+  # WireGuard (docs/multi-user.md): the tunnel, the Mac's key and everyone's access. The new
+  # owner's network is a different one; they set it up again if they want it.
+  if [ -e "$SYSROOT/Library/LaunchDaemons/local.wireguard.plist" ] || [ -e "$SYSROOT/etc/wireguard" ]; then
+    r tmo 20 launchctl bootout system/local.wireguard
+    [ -f "$SYSROOT/etc/wireguard/wg0.conf" ] && r tmo 20 wg-quick down "$SYSROOT/etc/wireguard/wg0.conf"
+    r rm -rf "$SYSROOT/Library/LaunchDaemons/local.wireguard.plist" "$SYSROOT/etc/wireguard"
+  fi
 
   log "-- Tailscale"
   if [ "$DRY_RUN" = 1 ]; then log "   status: $("$TAILSCALE" status 2>&1 | head -1)"; fi
@@ -247,11 +255,12 @@ ASK=""; trap '[ -n "$ASK" ] && rm -rf "$ASK"' EXIT
 
 # Passwords only ever go to dscl on its standard input, never on a command line (argv is visible
 # to every local process). There is no argv fallback: if dscl's stdin mode can't check a
-# password, the handover stops and says so.
+# password, the handover stops and says so. TERM=dumb: with a terminal type it has no entry for
+# (xterm-ghostty, say) dscl's interactive mode also prints a warning, and the answer is no longer just "Goodbye".
 AUTH_WHY=""   # after a failed auth_ok: "wrong" (dscl rejected the password) or "dscl" (couldn't check)
 auth_ok() {  # auth_ok <password>: check $USER's password
   local out
-  out="$(printf 'authonly %s %s\n' "$(dq "$USER")" "$(dq "$1")" | dscl /Search 2>&1)"
+  out="$(printf 'authonly %s %s\n' "$(dq "$USER")" "$(dq "$1")" | TERM=dumb dscl /Search 2>&1)"
   [ "$out" = Goodbye ] && return 0
   case "$out" in *eDSAuth*) AUTH_WHY=wrong ;; *) AUTH_WHY=dscl ;; esac
   return 1
@@ -263,7 +272,7 @@ Check that the password file holds only the password (no extra lines), then run 
   die "$1"
 }
 set_pw() {  # set_pw <old> <new>
-  [ "$(printf 'passwd %s %s %s\n' "$(dq "/Users/$USER")" "$(dq "$1")" "$(dq "$2")" | dscl . 2>&1)" = Goodbye ]
+  [ "$(printf 'passwd %s %s %s\n' "$(dq "/Users/$USER")" "$(dq "$1")" "$(dq "$2")" | TERM=dumb dscl . 2>&1)" = Goodbye ]
 }
 ask_pw() { ( umask 077; printf '%s' "$1" > "$ASK/pw" ); }   # ask_pw <password>: what the askpass helper hands sudo
 setup_sudo() {  # setup_sudo <password>: password-free sudo if available, else an askpass helper

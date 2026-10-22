@@ -24,12 +24,14 @@ OUT="$T_TMP/out"
 # ---------------------------------------------------------------- smart wrappers (test-local)
 # dscl: argv is logged by the shared fake. Keeps the account password in $PW_STATE. In
 # interactive mode (one argument) it reads commands from stdin, records them in $STDIN_LOG and
-# logs only the verb ("stdin:dscl passwd") to FAKE_LOG, never the secrets.
+# logs only the verb ("stdin:dscl passwd") to FAKE_LOG, never the secrets. Like the real one, it
+# warns about a terminal type it has no entry for (xterm-ghostty, say) unless TERM=dumb.
 cat > "$W/dscl" <<'EOF'
 #!/bin/bash
 "$FAKES/dscl" "$@" >/dev/null
 cur="$(cat "$PW_STATE" 2>/dev/null)"
 if [ $# -eq 1 ]; then
+  [ "${TERM:-}" = dumb ] || echo 'No entry for terminal type "xterm-ghostty"; using dumb terminal settings.'
   fail=0
   while IFS= read -r line; do
     printf '%s\n' "$line" >> "$STDIN_LOG"
@@ -541,6 +543,8 @@ SH_DROP="$MAS_SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/
 SH_MKT="$MAS_SYSROOT/Library/Application Support/mac-ai-server/shared-claude"
 mkdir -p "$(dirname "$SH_DROP")" "$SH_MKT/x" "$MAS_SYSROOT/usr/local/bin"; echo '{}' > "$SH_DROP"
 touch "$MAS_SYSROOT/usr/local/bin/claude-local" "$MAS_SYSROOT/usr/local/bin/chat" "$MAS_SYSROOT/etc/sudoers.d/90-$ME-nopasswd"
+mkdir -p "$MAS_SYSROOT/etc/wireguard" "$H/.mac-ai-server/users/sam"; touch "$MAS_SYSROOT/etc/wireguard/wg0.conf" "$H/.mac-ai-server/users/sam/card.txt"
+touch "$MAS_SYSROOT/Library/LaunchDaemons/local.wireguard.plist"
 HANG="$T_TMP/hang"; mkdir -p "$HANG"
 printf '#!/bin/bash\necho "tailscale $*" >> "$FAKE_LOG"\n[ "${1:-}" = logout ] && sleep 30\nexit 0\n' > "$HANG/tailscale"; chmod +x "$HANG/tailscale"
 PATH="$HANG:$PATH" HANDOVER_TIMEOUT=2 FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
@@ -548,6 +552,9 @@ assert_eq "$(tail -1 "$FAKE_LOG")" "shutdown -h now" "shutdown still happens aft
 out_has "timed out after 2s" "the stuck step is logged"
 assert_ok "setup-token login wiped" test ! -e "$H/.mac-ai-server/claude-token"
 assert_ok "shared plugins and skills wiped" test ! -e "$SH_DROP" -a ! -e "$SH_MKT"
+assert_ok "WireGuard keys and daemon wiped" test ! -e "$MAS_SYSROOT/etc/wireguard" -a ! -e "$MAS_SYSROOT/Library/LaunchDaemons/local.wireguard.plist"
+assert_logged '^launchctl bootout system/local.wireguard'
+assert_ok "people's info packs wiped" test ! -e "$H/.mac-ai-server/users"
 assert_ok "shared launchers wiped" test ! -e "$MAS_SYSROOT/usr/local/bin/claude-local" -a ! -e "$MAS_SYSROOT/usr/local/bin/chat"
 n_sud="$(grep -n 'rm -f .*sudoers.d/.*-nopasswd' "$OUT" | head -1 | cut -d: -f1)"; n_wipe="$(grep -n -- "-- removing the owner's data" "$OUT" | head -1 | cut -d: -f1)"
 assert_ok "password-free sudo removed before the data wipe" test "${n_sud:-99}" -lt "${n_wipe:-0}"

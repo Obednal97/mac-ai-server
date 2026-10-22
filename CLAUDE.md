@@ -242,7 +242,7 @@ To turn it off later: set `MAS_AGENT_MODE=no` in `config.env` and run `mac-ai-se
 
 - Save `MAS_MULTIUSER=yes` for "yes" or "maybe later", otherwise `MAS_MULTIUSER=no`.
 - Yes makes their home folder private (macOS normally lets every account look inside it) and shares `claude-local`, `chat`, plugins and skills with every account. It doesn't create any accounts.
-- Tell them that after the install they add a person with `mac-ai-server users add <name>` (they choose a temporary password, and the person picks their own at first login). `docs/multi-user.md` has the details.
+- Tell them that after the install they add a person with `mac-ai-server users add <name>`. It makes the account with a temporary password (the person picks their own at first login) and an info pack to send them. Remote people connect through Tailscale sharing by default: they use their own free Tailscale account, never the owner's. People who won't sign up for anything can use WireGuard instead (`--wireguard`), if the owner can forward a UDP port on their router (see the WireGuard settings below). `docs/multi-user.md` has the details.
 
 ### 4k. "About me" memory starter (optional; default: skip)
 
@@ -311,6 +311,7 @@ Then run `./install.sh --plan` again. Check that the name, the mode and the mode
 |---|---|---|
 | `MAS_REMOVE_APPS=yes` | `no` | Deletes GarageBand, iMovie, Keynote, Numbers and Pages (they're free to reinstall from the App Store) to free several GB. |
 | `MAS_SEARCH` / `MAS_SEARXNG_URL` | `duckduckgo` / empty | Which web search tool to install (see 4e). |
+| `MAS_WIREGUARD=yes`, `MAS_WG_ENDPOINT`, `MAS_WG_PORT` | `no`, empty, `51820` | WireGuard for people who won't create any account (`users add <name> --wireguard`). Needs a UDP port forward on the router and a public name for the home connection. See `docs/multi-user.md`. |
 | `MAS_PLUGINS` | `"superpowers code-review frontend-design playwright"` | Which plugins to install. |
 
 ## Step 5: run the install
