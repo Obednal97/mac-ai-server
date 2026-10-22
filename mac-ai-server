@@ -295,7 +295,7 @@ CARD
    (no account or sign-up needed)
 2. Add the tunnel: in WireGuard choose "Import tunnel(s) from file" and pick
    the file $conf that came with this card. On a phone, scan the QR code
-   ($name-$host.png) instead. Then switch the tunnel on.
+   ($name-$host.png) instead.
 3. Switch the tunnel on in the WireGuard app, then connect from Terminal:
      ssh $name@$(mas_wg_net).1
    The first time, it asks whether to trust this computer: type yes.

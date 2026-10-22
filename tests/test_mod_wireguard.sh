@@ -61,10 +61,23 @@ assert_ok "a freed address is reused" grep -qx 'Address = 10.77.0.2/32' <<< "$c3
 # live changes only when the tunnel is up
 assert_not_logged '^wg set'
 FI="$T_TMP/ifc"; mkdir -p "$FI"; printf '#!/bin/sh\necho "	inet 10.77.0.1 --> 10.77.0.1 netmask 0xffffff00"\n' > "$FI/ifconfig"; chmod +x "$FI/ifconfig"
+# on macOS the interface is utunN (wg-quick notes it, root-only, in wg0.name): `wg set wg0` fails there
+mkdir -p "$MAS_SYSROOT/var/run/wireguard"; echo utun9 > "$MAS_SYSROOT/var/run/wireguard/wg0.name"
 : > "$FAKE_LOG"; PATH="$FI:$PATH" lib mas_wg_add_peer bo >/dev/null
-assert_logged '^wg set wg0 peer PUB-.* allowed-ips 10.77.0.4/32'
+assert_logged '^wg set utun9 peer PUB-.* allowed-ips 10.77.0.4/32'
+assert_logged '^sudo cat .*/var/run/wireguard/wg0.name'
+assert_logged '^route -q -n add -inet 10.77.0.4/32 -interface utun9'
+assert_not_logged 'wg0 peer'
 : > "$FAKE_LOG"; PATH="$FI:$PATH" lib mas_wg_remove_peer bo >/dev/null
-assert_logged '^wg set wg0 peer PUB-.* remove'
+assert_logged '^wg set utun9 peer PUB-.* remove'
+assert_logged '^route -q -n delete -inet 10.77.0.4/32'
+# up, but the interface name can't be found: adding warns, revoking stops before changing the file
+rm "$MAS_SYSROOT/var/run/wireguard/wg0.name"
+: > "$FAKE_LOG"; PATH="$FI:$PATH" lib mas_wg_add_peer cy >/dev/null
+assert_ok "add warns when it can't reach the tunnel" grep -q "Couldn't add cy to the running tunnel" "$OUT.err"
+PATH="$FI:$PATH" lib mas_wg_remove_peer cy >/dev/null
+assert_eq "$?" 1 "revoke fails when it can't reach the running tunnel"
+assert_ok "cy's key kept until it can be revoked live" grep -qx '# user: cy' "$CONF"
 
 # checks
 runfn mod_check MAS_WIREGUARD=yes MAS_WG_ENDPOINT=home.example.com

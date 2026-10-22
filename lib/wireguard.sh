@@ -17,6 +17,10 @@ mas_wg_bin() { printf '%s' "${MAS_BREW_PREFIX:-/opt/homebrew}/bin/$1"; }
 # mas_wg_up: is the tunnel's interface up? (no sudo: ifconfig lists the address)
 mas_wg_up() { ifconfig 2>/dev/null | grep -q "inet $(mas_wg_net).1 "; }
 
+# mas_wg_iface: the tunnel's real interface (utunN). On macOS only wg-quick knows the name wg0:
+# `wg set wg0` fails, so live changes use this name, which wg-quick notes in a root-only file.
+mas_wg_iface() { sudo cat "${MAS_SYSROOT:-}/var/run/wireguard/wg0.name" 2>/dev/null; }
+
 # mas_wg_server_init: the Mac's key and config, written once (root-only); the pf rules every time.
 mas_wg_server_init() {
   local dir conf net port key
@@ -50,7 +54,7 @@ mas_wg_peer_ip() {
 
 # mas_wg_add_peer <name>: give that person a key and an address; prints their config file to stdout.
 mas_wg_add_peer() {
-  local name="$1" net conf used n ip key pub spub endpoint
+  local name="$1" net conf used n ip key pub spub endpoint ifc
   net="$(mas_wg_net)"; conf="$(mas_wg_conf)"
   [ -n "$(mas_wg_peer_ip "$name")" ] && { mas_warn "$name already has a WireGuard key."; return 1; }
   used=" $(sudo sed -n 's/^AllowedIPs *= *[0-9]*\.[0-9]*\.[0-9]*\.\([0-9]*\).*/\1/p' "$conf" | tr '\n' ' ') "
@@ -61,9 +65,13 @@ mas_wg_add_peer() {
   printf '%s\n' "" "[Peer]" "# user: $name" "PublicKey = $pub" "AllowedIPs = $ip/32" | sudo tee -a "$conf" >/dev/null || return 1
   # Live too, if the tunnel is up (otherwise it reads the file when it starts)
   if mas_wg_up; then
-    sudo "$(mas_wg_bin wg)" set wg0 peer "$pub" allowed-ips "$ip/32"
-    # wg-quick routes each peer only when the tunnel starts; add this one's route now
-    sudo route -q -n add -inet "$ip/32" -interface "$(cat "${MAS_SYSROOT:-}/var/run/wireguard/wg0.name" 2>/dev/null)" >/dev/null 2>&1
+    ifc="$(mas_wg_iface)"
+    if [ -n "$ifc" ] && sudo "$(mas_wg_bin wg)" set "$ifc" peer "$pub" allowed-ips "$ip/32"; then
+      # wg-quick routes each peer only when the tunnel starts; add this one's route now
+      sudo route -q -n add -inet "$ip/32" -interface "$ifc" >/dev/null 2>&1
+    else
+      mas_warn "Couldn't add $name to the running tunnel. It takes effect when it restarts: sudo launchctl kickstart -k system/local.wireguard"
+    fi
   fi
   endpoint="${MAS_WG_ENDPOINT:-YOUR-PUBLIC-ADDRESS}:$(mas_wg_port)"
   printf '%s\n' "[Interface]" "PrivateKey = $key" "Address = $ip/32" "" "[Peer]" "PublicKey = $spub" \
@@ -73,12 +81,17 @@ mas_wg_add_peer() {
 
 # mas_wg_remove_peer <name>: revoke that person's key at once (live and in the config).
 mas_wg_remove_peer() {
-  local name="$1" conf pub
+  local name="$1" conf pub ip ifc
   conf="$(mas_wg_conf)"
   sudo test -f "$conf" || return 0
   pub="$(sudo awk -v u="# user: $name" '$0 == u {p=1; next} /^\[/ {p=0} p && /^PublicKey/ {print $3; exit}' "$conf")"
   [ -n "$pub" ] || return 0
-  if mas_wg_up; then sudo "$(mas_wg_bin wg)" set wg0 peer "$pub" remove; fi
+  ip="$(mas_wg_peer_ip "$name")"
+  if mas_wg_up; then
+    ifc="$(mas_wg_iface)"
+    { [ -n "$ifc" ] && sudo "$(mas_wg_bin wg)" set "$ifc" peer "$pub" remove; } || return 1
+    [ -n "$ip" ] && sudo route -q -n delete -inet "$ip/32" >/dev/null 2>&1
+  fi
   # Drop the [Peer] block that carries this name. Written next to the file by root (it holds the
   # Mac's private key), then moved over it.
   # shellcheck disable=SC2016  # awk program, expanded by the root shell's arguments
