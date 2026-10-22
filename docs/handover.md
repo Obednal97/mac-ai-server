@@ -27,13 +27,14 @@ This is the complete list. The new owner gets the same admin account, so anythin
 - `~/setup-ai-server.log`, `~/WELCOME.txt` and opencode's settings, if present.
 
 **Removed:**
-- passwordless admin: phase 2 removes every `/etc/sudoers.d/*-nopasswd` file, not just the one this installer created;
+- passwordless admin: phase 2 removes every `/etc/sudoers.d/*-nopasswd` file, not just the one this installer created. Phase 1 also sets `MAS_AGENT_MODE=no` in `config.env`, so the new owner's first `mac-ai-server install` doesn't quietly turn agent mode back on;
+- extra login names you added to the account (first-run step 2), so the new owner logs in with the name on the card;
 - the Mac from your Tailscale network.
 
 **Kept:**
 - installed software and the Ollama models;
 - the new owner's Wi-Fi network (or all networks with `HANDOVER_KEEP_WIFI=1`);
-- the installer's settings (`~/.mac-ai-server/config.env`: machine name and choices, no secrets);
+- the installer's settings (`~/.mac-ai-server/config.env`: machine name and choices, no secrets), except agent mode, which is switched off;
 - all system settings, including the Location permission for the Wi-Fi setup page;
 - anything else in the home folder that isn't on the list above, e.g. other apps' data in `~/Library`.
 
@@ -164,16 +165,21 @@ The card uses the Mac's own model name ("Mac mini", "Mac Studio", "MacBook Pro"â
 
 ## The first-run assistant
 
-The assistant starts at the new owner's first login, over SSH or with Start Here, and walks through six steps:
+The assistant starts at the new owner's first SSH login, or when they double-click Start Here on the desktop. It doesn't start by itself in a Terminal window on the Mac's own screen: the Mac usually runs without a monitor, and macOS can reopen Terminal windows at login, which would start a copy nobody sees. If a copy is already running elsewhere, a new one says where and offers to stop it and carry on.
+
+It walks through seven steps:
 
 1. **New password.** It replaces the temporary one, and also updates auto-login and the keychain.
-2. **Their name** on the account.
+2. **Their name** on the account, and optionally **a login name of their own** (e.g. `sam`), so they connect with `ssh sam@<name>`. It's an alias of the same account (a second `RecordName`), not a rename: renaming the account would break every path under `/Users/<user>`, from the models to Claude Code's settings. The original name keeps working.
 3. **Machine name, plus fresh security keys** for SSH, so the previous owner's keys can't impersonate the Mac. The new owner's computer will warn that the "host identification has changed". The assistant explains the one command that fixes it.
 4. **Their own Tailscale**, with a reminder to disable key expiry.
-5. **An SSH key** (optional), with an option to switch off password logins.
+5. **An SSH key** (optional), with an option to switch off password logins. It shows what the whole line looks like, accepts a key pasted without its `ssh-ed25519` start, checks it with `ssh-keygen`, and asks again if it was cut short. `ssh-copy-id` from their computer is offered as an alternative.
 6. **Other people** (optional): "Will anyone else use this Mac?" *Add someone now* turns on multi-user mode and runs `mac-ai-server users add` for each name. *Maybe later* only turns on the mode. *No* changes nothing. See [multi-user.md](multi-user.md).
+7. **AI model:** lists the models that fit (`mac-ai-server models`) and switches to the one they pick (`mac-ai-server models default`, downloading it if needed). Enter keeps the current one.
 
-Interruptions are safe: Ctrl-C, a dropped connection or a power cut. Finished steps are remembered, and it resumes at the next login. Run `first-run-setup` to resume by hand, or `first-run-setup --redo <step>` to repeat one. The steps are `password`, `name`, `hostkeys`, `tailscale`, `sshkey` and `users`. If the password changed but the rest of the step didn't finish, it asks once more for the new password and finishes the job.
+Then it puts back what phase 2 deleted with `~/.claude`: the agent tools (web search, page reader, browser), plugins and the status line, following `config.env` (`mac-ai-server install --only claude,agent-tools,statusline`).
+
+Interruptions are safe: Ctrl-C, a dropped connection or a power cut. Finished steps are remembered, and it resumes at the next login. Run `first-run-setup` to resume by hand, or `first-run-setup --redo <step>` to repeat one. The steps are `password`, `name`, `hostkeys`, `tailscale`, `sshkey`, `users` and `model`. If the password changed but the rest of the step didn't finish, it asks once more for the new password and finishes the job.
 
 It ends on the welcome screen and leaves a quick reference in `~/WELCOME.txt`.
 

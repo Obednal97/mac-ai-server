@@ -122,6 +122,16 @@ BLOCK
 [ -n "$SSH_CONNECTION" ] && [ -x ~/.local/bin/ai-keychain-unlock ] && ~/.local/bin/ai-keychain-unlock --login
 BLOCK
   fi
+  # A terminal this Mac has no description for (Ghostty's xterm-ghostty, kitty's xterm-kitty, ...)
+  # makes tmux refuse to start over SSH. Fall back to xterm-256color, which they all understand.
+  if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then
+    cat >> "$HOME/.zshrc" <<'BLOCK'
+
+# mac-ai-server: term
+# Unknown terminal type (e.g. xterm-ghostty over SSH): use one tmux and other tools know
+[ -n "$TERM" ] && ! infocmp "$TERM" >/dev/null 2>&1 && export TERM=xterm-256color
+BLOCK
+  fi
   # shellcheck disable=SC2016  # literal line for the shell profile
   grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
@@ -163,6 +173,10 @@ mod_check() {
   fi
   if ! grep -q '# mac-ai-server: keychain' "$HOME/.zprofile" 2>/dev/null; then
     echo "fail SSH logins don't unlock the keychain (block missing from ~/.zprofile) — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then
+    echo "fail unknown terminal types (like Ghostty's) aren't handled, so tmux may refuse to start — run: mac-ai-server install --only claude"
     return 1
   fi
   if ! security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 \

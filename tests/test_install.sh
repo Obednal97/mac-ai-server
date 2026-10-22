@@ -86,10 +86,14 @@ assert_eq "$(cat "$FIX_OUT")" "ran beta" "only beta ran only beta"
 assert_ok "log written" test -s "$HOME/.mac-ai-server/install.log"
 assert_eq "$(stat -f %Lp "$HOME/.mac-ai-server")" 700 "log dir is 0700"
 assert_ok "log has module step" grep -q beta "$HOME/.mac-ai-server/install.log"
+# a partial run that downloads no model skips the long model plan; a full run shows it
+assert_fails "--only skips the model plan" has_out "Recommended AI model"
+assert_ok "--only says what it runs" has_out "Running only: beta"
 
 rm -f "$FIX_OUT"; run --yes
 assert_eq "$(cat "$FIX_OUT" | tr '\n' ,)" "ran alpha,ran beta," "all applicable modules, in order"
 assert_ok "skipped logged" has_out "skipped gamma"
+assert_ok "full run shows the model plan" has_out "Recommended AI model"
 
 rm -f "$FIX_OUT"; run --yes --skip alpha
 assert_eq "$(cat "$FIX_OUT" | tr '\n' ,)" "ran beta," "skip alpha"

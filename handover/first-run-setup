@@ -4,14 +4,14 @@
 # Starts automatically on login while ~/.first-run/pending exists. Finished steps are
 # remembered in ~/.first-run, so stopping part-way is safe: the next run resumes.
 #   first-run-setup                 run (or resume) setup
-#   first-run-setup --redo <step>   run one step again: password | name | hostkeys | tailscale | sshkey | users
+#   first-run-setup --redo <step>   run one step again: password | name | hostkeys | tailscale | sshkey | users | model
 # DRY_RUN=1 prints system-changing commands instead of running them.
 # Tests only: MAS_SYSROOT=<dir> prefixes the system paths it writes (/etc/...).
 set -uo pipefail
 
 STATE="$HOME/.first-run"
 DRY_RUN="${DRY_RUN:-0}"
-STEPS="password name hostkeys tailscale sshkey users"
+STEPS="password name hostkeys tailscale sshkey users model"
 SYSROOT="${MAS_SYSROOT:-}"
 KCPASSWORD="$SYSROOT/etc/kcpassword"
 # Append, so the caller's PATH (and the fakes in tests) come first
@@ -87,11 +87,24 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   # After a power cut the old pid may now belong to another process (or to this one), so check what it is
   if [ -n "$LPID" ] && [ "$LPID" != "$$" ] &&
      ps -p "$LPID" -o command= 2>/dev/null | grep -Eq '^(/bin/)?(ba)?sh [^ ]*first-run-setup( |$)'; then
-    warn "The setup assistant is already running in another window or session."
-    say  "Finish it there, or close that window and run: first-run-setup"
-    exit 0
+    # Often it's one nobody can see: a Terminal window that macOS reopened on the Mac's own screen
+    # at login, while the owner is connected over SSH. Say where it is and offer to take over.
+    LTTY="$(ps -p "$LPID" -o tty= 2>/dev/null | tr -d ' ')"
+    LFROM="$(who 2>/dev/null | awk -v t="$LTTY" '$2 == t' | sed -n 's/.*(\(.*\)).*/\1/p' | head -1)"
+    if [ -n "$LFROM" ]; then WHERE="in another SSH session (from $LFROM)"
+    else WHERE="in another window (likely a Terminal window on the $MODEL_NAME's own screen)"; fi
+    warn "The setup assistant is already running $WHERE."
+    if [ -t 0 ] && ask_yn "Stop that one and continue here? (Finished steps are kept.)" y; then
+      kill -TERM "$LPID" 2>/dev/null
+      for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$LPID" 2>/dev/null || break; sleep 0.5; done
+      kill -0 "$LPID" 2>/dev/null && kill -KILL "$LPID" 2>/dev/null
+      ok "Stopped it. Continuing here."
+    else
+      say "Finish it there, or close that window and run: first-run-setup"
+      exit 0
+    fi
   fi
-  rm -rf "$LOCK"; mkdir "$LOCK"   # stale lock from a session that was cut off
+  rm -rf "$LOCK"; mkdir "$LOCK"   # stale lock from a session that was cut off, or one just stopped
 fi
 echo $$ > "$LOCK/pid"
 KEEPALIVE=""
@@ -109,11 +122,12 @@ ${b}Welcome to your AI $MODEL_NAME.${rst}
 
 This assistant takes about 5 minutes. It will:
   1. Set a new password (the one you were given is temporary)
-  2. Put your name on the account
+  2. Put your name on the account, and optionally give you a login name of your own
   3. Name the machine and give it fresh security keys
   4. Connect it to ${b}your${rst} Tailscale account so you can reach it from anywhere
   5. Optionally add your SSH key for password-free login
   6. Ask whether other people will use this Mac too
+  7. Let you pick which AI model it runs
 
 You can stop at any time with Ctrl-C. Finished steps are remembered,
 and the assistant starts again the next time you log in.
@@ -124,7 +138,7 @@ fi
 
 # ---------------------------------------------------------------- 1. password
 if ! is_done password; then
-  head1 "Step 1 of 6 · New password"
+  head1 "Step 1 of 7 · New password"
   if [ -f "$STATE/password-changed" ]; then
     # Interrupted after the password changed but before the keychain or auto-login was updated
     say "Your password was already changed. Enter it once more to finish this step."
@@ -199,23 +213,52 @@ sudo_ok || { err "Admin access failed. Run first-run-setup to try again."; exit 
 
 # ---------------------------------------------------------------- 2. display name
 if ! is_done name; then
-  head1 "Step 2 of 6 · Your name"
+  head1 "Step 2 of 7 · Your name and login name"
   # dscl prints "RealName: x", or "RealName:" then " x" on the next line when the name has spaces
   CURRENT="$(dscl . -read "/Users/$USER" RealName 2>/dev/null | sed '1s/^RealName://' | tr -d '\n' | sed 's/^ *//')"
   say "This name appears on the login screen and in System Settings."
-  say "(Your username for logging in stays ${b}$USER${rst}.)"
   read -r -p "Your name [${CURRENT:-$USER}]: " RN
   RN="$(printf '%s' "$RN" | tr -d ':\n\r\t' | sed 's/^ *//; s/ *$//')"
   if [ -n "$RN" ] && [ "$RN" != "$CURRENT" ]; then
     run sudo dscl . -create "/Users/$USER" RealName "$RN" && ok "Name set to $RN."
   fi
+  # A login name of their own, as an alias of this account (another RecordName). Renaming the
+  # account itself would break every path under /Users/$USER (models, services, Claude Code).
+  SUGGEST="$(printf '%s' "${RN:-$CURRENT}" | awk '{print tolower($1)}' | tr -cd 'a-z0-9_-')"
+  [ "$SUGGEST" != "$USER" ] || SUGGEST=""
+  say
+  say "You log in as ${b}$USER${rst}. You can add a login name of your own${SUGGEST:+, like ${b}$SUGGEST${rst}}, so you"
+  say "connect with ${b}ssh ${SUGGEST:-yourname}@$(scutil --get LocalHostName)${rst}. It's the same account under another name:"
+  say "your files, models and settings stay exactly where they are, and ${b}$USER${rst} keeps working too."
+  while true; do
+    read -r -p "Your login name (Enter to keep just $USER): " ALIAS || ALIAS=""
+    ALIAS="$(printf '%s' "$ALIAS" | tr '[:upper:]' '[:lower:]' | tr -d ' \r\t')"
+    [ -n "$ALIAS" ] && [ "$ALIAS" != "$USER" ] || break
+    if ! [[ "$ALIAS" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]]; then
+      err "Use lowercase letters, digits, - and _ (starting with a letter)."; continue
+    fi
+    # (id also matches the account's full name, e.g. "sam" for "Sam": that isn't a login name
+    # of its own and stops working if the name changes, so only RecordName counts as "already set")
+    if dscl . -read "/Users/$USER" RecordName 2>/dev/null | sed 's/^RecordName://' | tr ' ' '\n' | grep -qx "$ALIAS"; then
+      ok "$ALIAS already logs in to this account."; break
+    fi
+    if id -u "$ALIAS" >/dev/null 2>&1 && [ "$(id -u "$ALIAS")" != "$(id -u)" ]; then
+      err "$ALIAS is already another account on this Mac. Pick another name."; continue
+    fi
+    if run sudo dscl . -append "/Users/$USER" RecordName "$ALIAS"; then
+      ok "You can now log in as ${b}$ALIAS${rst}${grn} (e.g. ssh $ALIAS@$(scutil --get LocalHostName))."
+    else
+      warn "Couldn't add that login name. Try again later with: first-run-setup --redo name"
+    fi
+    break
+  done
   mark name
 fi
 
 # ---------------------------------------------------------------- 3. machine name + host keys
 OLDNAME="$(scutil --get LocalHostName)"
 if ! is_done hostkeys; then
-  head1 "Step 3 of 6 · Machine name and security keys"
+  head1 "Step 3 of 7 · Machine name and security keys"
   read -r -p "Machine name, used to connect to it [$OLDNAME]: " NAME
   NAME="$(printf '%s' "${NAME:-$OLDNAME}" | tr '[:upper:] _' '[:lower:]--' | tr -cd 'a-z0-9-' | sed 's/^-*//; s/-*$//' | cut -c1-63)"
   if [ -n "$NAME" ] && [ "$NAME" != "$OLDNAME" ]; then
@@ -242,6 +285,9 @@ if ! is_done hostkeys; then
   rm -rf "$TMPK"
 fi
 NAME="$(scutil --get LocalHostName)"
+# The name they log in with: their own login name (the newest alias) if they added one
+LOGIN="$(dscl . -read "/Users/$USER" RecordName 2>/dev/null | sed 's/^RecordName://' | awk '{print $NF}')"
+LOGIN="${LOGIN:-$USER}"
 if [ -f "$STATE/hostkey-warning" ]; then
   warn "Your computer will warn that the \"host identification has changed\" the next time you connect."
   say  "  That's expected. Before connecting again, run this on ${b}your${rst} computer:"
@@ -250,10 +296,10 @@ fi
 
 # ---------------------------------------------------------------- 4. tailscale
 if ! is_done tailscale; then
-  head1 "Step 4 of 6 · Tailscale (access from anywhere)"
+  head1 "Step 4 of 7 · Tailscale (access from anywhere)"
   if [[ "${SSH_CONNECTION:-}" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
     warn "You're connected through Tailscale right now. Redoing this step drops that connection."
-    say  "Connect over your home network (ssh $USER@$NAME.local) and run:  first-run-setup --redo tailscale"
+    say  "Connect over your home network (ssh $LOGIN@$NAME.local) and run:  first-run-setup --redo tailscale"
     exit 1
   fi
   cat <<EOF
@@ -288,14 +334,39 @@ fi
 
 # ---------------------------------------------------------------- 5. ssh key
 if ! is_done sshkey; then
-  head1 "Step 5 of 6 · SSH key (optional, recommended)"
+  head1 "Step 5 of 7 · SSH key (optional, recommended)"
   say "With an SSH key you can log in without typing a password, and password logins"
   say "can be switched off entirely, which is much safer."
   say "On your computer, print your public key with:  ${b}cat ~/.ssh/id_ed25519.pub${rst}"
-  say "(If you don't have one, create it first with:   ${b}ssh-keygen -t ed25519${rst})"
+  say "(If it says \"No such file\", create one first with  ${b}ssh-keygen -t ed25519${rst}  and press Enter at each question.)"
   say
-  read -r -p "Paste your public key (or press Enter to skip): " KEY
-  if [[ "$KEY" =~ ^(ssh-(ed25519|rsa)|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9@.-]+)\ [A-Za-z0-9+/=]+ ]]; then
+  say "Copy and paste the ${b}whole line${rst} it prints, from ssh-ed25519 at the start to the name or email"
+  say "at the end. It looks like this, only longer:"
+  say "    ${dim}ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...(about 50 more letters)... you@your-computer${rst}"
+  say "It's a ${b}public${rst} key, so it's safe to share. Never paste the file without .pub (your private key)."
+  say "(Or skip this and run  ${b}ssh-copy-id $LOGIN@$NAME.local${rst}  on your computer, which copies it for you.)"
+  say
+  while true; do
+    read -r -p "Paste your public key (or press Enter to skip): " KEY || KEY=""
+    KEY="$(printf '%s' "$KEY" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$KEY" ] || break
+    # Only the long middle part copied (no "ssh-ed25519 " in front)? Its start names the type.
+    case "$KEY" in
+      AAAAC3NzaC1lZDI1NTE5*)               KEY="ssh-ed25519 $KEY" ;;
+      AAAAB3NzaC1yc2E*)                    KEY="ssh-rsa $KEY" ;;
+      AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY*)    KEY="ecdsa-sha2-nistp256 $KEY" ;;
+      AAAAE2VjZHNhLXNoYTItbmlzdHAzODQ*)    KEY="ecdsa-sha2-nistp384 $KEY" ;;
+      AAAAE2VjZHNhLXNoYTItbmlzdHA1MjE*)    KEY="ecdsa-sha2-nistp521 $KEY" ;;
+    esac
+    # A key cut short while copying looks right but never works: let ssh-keygen check it
+    if [[ "$KEY" =~ ^(ssh-(ed25519|rsa)|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9@.-]+)\ [A-Za-z0-9+/=]+ ]] &&
+       { [ "$DRY_RUN" = 1 ] || printf '%s\n' "$KEY" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1; }; then
+      break
+    fi
+    warn "That doesn't look like a whole public key. It's one line starting with ssh-ed25519 (or ssh-rsa)."
+    say  "Copy the full output of  cat ~/.ssh/id_ed25519.pub  and paste it again, or press Enter to skip."
+  done
+  if [ -n "$KEY" ]; then
     if [ "$DRY_RUN" = 1 ]; then
       run append-to "$HOME/.ssh/authorized_keys" "$KEY"
     else
@@ -306,7 +377,7 @@ if ! is_done sshkey; then
     ok "Key added."
     say
     say "Test it: open a ${b}new${rst} terminal on your computer and connect the same way you did just now"
-    say "(e.g. ${b}ssh $USER@$NAME.local${rst}). It should log in without asking for this Mac's password."
+    say "(e.g. ${b}ssh $LOGIN@$NAME.local${rst}). It should log in without asking for this Mac's password."
     [ -f "$STATE/hostkey-warning" ] && say "Remember to run ${b}ssh-keygen -R $(cat "$STATE/hostkey-warning").local${rst} first (see above)."
     if ask_yn "Did the key login work, and do you want to switch off SSH password logins?" n; then
       run sudo sh -c 'printf "PasswordAuthentication no\nKbdInteractiveAuthentication no\n" > "$1"' sh "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
@@ -314,16 +385,15 @@ if ! is_done sshkey; then
     else
       say "Password login left on. To change this later: first-run-setup --redo sshkey"
     fi
-  elif [ -n "$KEY" ]; then
-    warn "That doesn't look like a public key (it should start with ssh-ed25519 or ssh-rsa). Skipped."
-    say  "Add one later with: first-run-setup --redo sshkey"
+  else
+    say "Skipped. Add one later with: first-run-setup --redo sshkey"
   fi
   mark sshkey
 fi
 
 # ---------------------------------------------------------------- 6. other people
 if ! is_done users; then
-  head1 "Step 6 of 6 · Other people (optional)"
+  head1 "Step 6 of 7 · Other people (optional)"
   say "Other people can have their own accounts on this Mac: their own files, Claude login and"
   say "memory, which you can't see and they can't see yours. Everyone shares the AI models,"
   say "so nothing is downloaded twice."
@@ -361,6 +431,47 @@ if ! is_done users; then
   mark users
 fi
 
+# ---------------------------------------------------------------- 7. AI model
+MAS_CMD="$HOME/.local/bin/mac-ai-server"
+if ! is_done model; then
+  # "  tag (size GB): label [in use] ..." lines from mac-ai-server models
+  MLIST="$([ -x "$MAS_CMD" ] && "$MAS_CMD" models 2>/dev/null | grep -E '^  [^ ]+ \([0-9.]+ GB\)')"
+  if [ -n "$MLIST" ]; then
+    head1 "Step 7 of 7 · AI model"
+    say "claude-local and chat run on an AI model stored on this Mac. These fit in its memory:"
+    say
+    printf '%s\n' "$MLIST"
+    say
+    say "The ${b}[recommended]${rst} one is the best balance for this Mac. [downloaded] ones switch instantly;"
+    say "others are downloaded first (roughly 1 to 3 minutes per GB on a home connection)."
+    while true; do
+      read -r -p "Model to use (Enter to keep the one [in use]): " M || M=""
+      M="$(printf '%s' "$M" | tr -d ' \r\t')"
+      [ -n "$M" ] || break
+      printf '%s\n' "$MLIST" | grep -qF "  $M (" || { err "That isn't one of the names above. Copy it exactly, e.g. $(printf '%s\n' "$MLIST" | awk 'NR==1{print $1}')"; continue; }
+      if printf '%s\n' "$MLIST" | grep -F "  $M (" | grep -qF '[in use]'; then ok "$M is already in use."; break; fi
+      if run "$MAS_CMD" models default "$M"; then ok "claude-local and chat now use $M."
+      else warn "Couldn't switch to $M. Try again later with: mac-ai-server models default $M"; fi
+      break
+    done
+  fi
+  mark model
+fi
+
+# ---------------------------------------------------------------- Claude Code extras
+# The handover deleted ~/.claude and ~/.claude.json, and with them the web search, page reader and
+# browser tools, the plugins and the status line. Put back whatever config.env asks for.
+if ! is_done extras && [ -x "$MAS_CMD" ]; then
+  head1 "Finishing: Claude Code's tools (web search, browser, status line)"
+  if run "$MAS_CMD" install --yes --only claude,agent-tools,statusline; then
+    ok "Claude Code's tools are set up."
+  else
+    warn "Some of Claude Code's tools didn't install. Try again later with:"
+    say  "  mac-ai-server install --only claude,agent-tools,statusline"
+  fi
+  mark extras   # either way: it's not worth stopping the setup for
+fi
+
 # ---------------------------------------------------------------- finish
 rm -f "$STATE/pending" "$STATE/hostkey-warning" "$HOME/Desktop/Start Here.command"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"; MODEL="${MODEL:-qwen3.6:27b-mxfp8}"
@@ -368,7 +479,7 @@ cat > "$HOME/WELCOME.txt" <<EOF
 YOUR AI $MODEL_UC · QUICK REFERENCE
 
 Connect from anywhere (Tailscale must be running on your device):
-  ssh $USER@$NAME
+  ssh $LOGIN@$NAME
   Screen Sharing:  vnc://$NAME   (on a Mac: Finder → Go → Connect to Server)
 On your home network you can also use $NAME.local
 
@@ -396,7 +507,7 @@ The machine:
   • Starts up by itself when power returns, and logs itself in
   • Never sleeps; installs security updates automatically
   • Other people can have their own accounts, sharing the models:  mac-ai-server users add <name>
-  • Change a setup step later:  first-run-setup --redo password|name|hostkeys|tailscale|sshkey|users
+  • Change a setup step later:  first-run-setup --redo password|name|hostkeys|tailscale|sshkey|users|model
 
 Keep in mind:
   • Forgot your password? Nobody can reset it remotely. With a monitor and keyboard,
@@ -409,7 +520,7 @@ EOF
 head1 "All done"
 cat <<EOF
 ${grn}${b}Your $MODEL_NAME is set up and belongs to you.${rst}
-Connect from anywhere with ${b}ssh $USER@$NAME${rst} (Tailscale on). This screen appears every time you log in:
+Connect from anywhere with ${b}ssh $LOGIN@$NAME${rst} (Tailscale on). This screen appears every time you log in:
 EOF
 if [ -x "$(dirname "$0")/ai-motd" ]; then "$(dirname "$0")/ai-motd"; fi
 exit 0

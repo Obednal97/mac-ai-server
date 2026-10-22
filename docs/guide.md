@@ -211,13 +211,15 @@ Open a **new** Terminal window (so it finds the new commands) and try:
 | Command | What it does |
 |---|---|
 | `claude` | Claude Code with Anthropic's models. Best quality, uses your Claude plan. |
-| `claude-local` | The same Claude Code on your Mac's own model. Private, offline, slower, less capable. |
+| `claude-local` | The same Claude Code on your Mac's own model. Private, offline, slower, less capable. It doesn't ask permission before it acts (see below). |
 | `chat` | A quick chat with the local model. Type `/bye` to leave. |
 | `chat <model>` | Chat with another downloaded model, e.g. the quick helper. |
 | `tmux new -As main` | A session that keeps running when you close the window or disconnect. Ctrl-b then d leaves it running. |
 | `mac-ai-server doctor` | The checklist, any time. |
 
 Both `claude` and `claude-local` share projects, memory and history. In a project folder, run either one with `--continue` to pick up where the other left off.
+
+**`claude-local` skips permission prompts** (it starts with `--dangerously-skip-permissions`). Auto mode would ask the local model to vet every command, which is slow and times out while the model is busy, and the default mode asks about everything. To be asked first, give a mode yourself (`claude-local --permission-mode default`) or set `CLAUDE_LOCAL_ASK=1`.
 
 **From your phone:** open the Claude app (or claude.ai/code in a browser) and start a Claude Code session on this Mac. More in [remote-access.md](remote-access.md).
 

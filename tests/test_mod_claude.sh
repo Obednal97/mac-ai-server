@@ -49,7 +49,20 @@ assert_ok "claude-local empty api key" grep -qx 'export ANTHROPIC_API_KEY=""' "$
 assert_ok "claude-local token" grep -qF 'ANTHROPIC_AUTH_TOKEN="ollama"' "$BIN/claude-local"
 assert_ok "claude-local subagent" grep -q 'CLAUDE_CODE_SUBAGENT_MODEL="\$MODEL"' "$BIN/claude-local"
 assert_ok "claude-local no traffic" grep -q 'DISABLE_NONESSENTIAL_TRAFFIC=1' "$BIN/claude-local"
-assert_ok "claude-local execs claude" grep -qx 'exec claude "\$@"' "$BIN/claude-local"
+assert_ok "claude-local execs claude" grep -qx 'exec claude ${skip:+"$skip"} "\$@"' "$BIN/claude-local"
+# claude-local skips permission prompts unless a mode is asked for (logged by a stand-in claude)
+CL="$T_TMP/cl"; mkdir -p "$CL"; printf '#!/bin/sh\necho "claude $*" >> "$FAKE_LOG"\n' > "$CL/claude"; chmod +x "$CL/claude"
+cl() { : > "$FAKE_LOG"; PATH="$CL:$SAFE_PATH" "$@" >/dev/null 2>&1; }
+cl "$BIN/claude-local" -c
+assert_logged '^claude --dangerously-skip-permissions -c$'
+cl "$BIN/claude-local" mcp list
+assert_logged '^claude --dangerously-skip-permissions mcp list$'
+cl "$BIN/claude-local" --permission-mode plan
+assert_logged '^claude --permission-mode plan$'
+cl "$BIN/claude-local" --permission-mode=acceptEdits
+assert_logged '^claude --permission-mode=acceptEdits$'
+cl env CLAUDE_LOCAL_ASK=1 "$BIN/claude-local" -c
+assert_logged '^claude -c$'
 assert_fails "claude-local no placeholders" grep -q '__[A-Z]*__' "$BIN/claude-local"
 assert_ok "chat default model" grep -qF '${1:-big:30b-x}' "$BIN/chat"
 assert_fails "chat no placeholders" grep -q '__[A-Z]*__' "$BIN/chat"
@@ -182,6 +195,15 @@ assert_ok "runs at SSH login only" grep -q 'SSH_CONNECTION.*ai-keychain-unlock -
 # claude-local never uses a setup-token login; the shell profile loads one only when the file exists
 assert_ok "claude-local drops the token" grep -qx 'unset CLAUDE_CODE_OAUTH_TOKEN.*' "$BIN/claude-local"
 assert_eq "$(grep -c 'mac-ai-server/claude-token' "$HOME/.zshrc")" 1 "token line added once"
+# unknown terminal types (Ghostty over SSH) fall back to xterm-256color, so tmux starts
+assert_eq "$(grep -c '# mac-ai-server: term' "$HOME/.zshrc")" 1 "term block added once"
+term_line="$(grep -A2 '# mac-ai-server: term' "$HOME/.zshrc" | tail -1)"
+assert_eq "$(TERM=xterm-ghostty /bin/zsh -fc "$term_line; echo \$TERM")" xterm-256color "unknown terminal falls back"
+assert_eq "$(TERM=vt100 /bin/zsh -fc "$term_line; echo \$TERM")" vt100 "known terminal kept"
+cp "$HOME/.zshrc" "$T_TMP/zshrc.bak"; grep -v 'mac-ai-server: term' "$T_TMP/zshrc.bak" > "$HOME/.zshrc"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "check notices a missing term block" has "fail unknown terminal types"
+cp "$T_TMP/zshrc.bak" "$HOME/.zshrc"
 # a setup-token file counts as logged in
 rm -f "$HOME/.claude/.credentials.json"; mkdir -p "$HOME/.mac-ai-server"; echo tok > "$HOME/.mac-ai-server/claude-token"
 runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1

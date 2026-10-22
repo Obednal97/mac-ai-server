@@ -53,6 +53,7 @@ case "$2" in
   -read) case "$4" in
            NFSHomeDirectory) echo "NFSHomeDirectory: ${FAKE_DSCL_HOME:-$HOME}" ;;
            RealName) echo "RealName: Test Owner" ;;
+           RecordName) echo "RecordName: ${FAKE_DSCL_RECORDNAME:-$USER}" ;;
          esac ;;
   -list) [ -n "${FAKE_DSCL_USERS:-}" ] && printf '%s\n' "$FAKE_DSCL_USERS" ;;   # "name uid" lines
   *) exit 0 ;;
@@ -162,6 +163,7 @@ assert_not_logged "$TEMP"
 assert_ok "password files deleted after reading" test ! -e "$T_TMP/owner" -a ! -e "$T_TMP/wifi"
 assert_ok "first-run armed" test -f "$HOME/.first-run/pending"
 assert_eq "$(grep -c 'first-run-setup' "$HOME/.zprofile")" 1 "zprofile hook added once"
+assert_ok "hook starts it over SSH only" grep -qF '[ -n "$SSH_CONNECTION" ]' "$HOME/.zprofile"
 assert_ok "Start Here on the desktop" test -x "$HOME/Desktop/Start Here.command"
 assert_eq "$(stat -f %Lp "$(STATE_DIR_T)/card.txt")" 600 "card saved mode 600"
 assert_ok "card has the temporary password" grep -qF "$TEMP" "$(STATE_DIR_T)/card.txt"
@@ -179,6 +181,25 @@ assert_not_logged 'removepreferredwirelessnetwork'
 assert_not_logged 'addpreferredwirelessnetworkatindex'
 assert_eq "$(grep -c 'first-run-setup' "$HOME/.zprofile")" 1 "zprofile hook still once"
 assert_eq "$(kcdecode "$MAS_SYSROOT/etc/kcpassword")" "$TEMP" "kcpassword still the temporary password"
+
+# an older hook (started it in any terminal, also on the Mac's own screen) is replaced, not doubled
+fresh; printf '%s\n' 'export A=1' '# First-run setup assistant (does nothing once setup is finished)' \
+  '[ -f ~/.first-run/pending ] && [ -t 0 ] && [ -z "$TMUX" ] && ~/.local/bin/first-run-setup' 'export B=2' > "$HOME/.zprofile"
+HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+assert_eq "$(grep -c 'first-run-setup' "$HOME/.zprofile")" 1 "old hook replaced"
+assert_eq "$(grep -c '^# First-run setup assistant' "$HOME/.zprofile")" 1 "its comment once"
+assert_ok "the new one is SSH-only" grep -qF '[ -n "$SSH_CONNECTION" ]' "$HOME/.zprofile"
+assert_ok "other lines kept" grep -qx 'export B=2' "$HOME/.zprofile"
+
+# ---- agent mode is switched off in config.env, so the new owner's first install can't bring it back
+fresh; mkdir -p "$HOME/.mac-ai-server"
+printf 'MAS_HOSTNAME=ai-mini\nMAS_AGENT_MODE=yes\nMAS_TAILSCALE=yes\n' > "$HOME/.mac-ai-server/config.env"
+HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+assert_eq "$(cat "$HOME/.mac-ai-server/config.env")" "$(printf 'MAS_HOSTNAME=ai-mini\nMAS_AGENT_MODE=no\nMAS_TAILSCALE=yes')" "agent mode off, the rest kept"
+out_has "Agent mode is now off" "says so"
+fresh; mkdir -p "$HOME/.mac-ai-server"; printf 'MAS_AGENT_MODE=yes\n' > "$HOME/.mac-ai-server/config.env"
+HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1 --dry-run
+assert_eq "$(cat "$HOME/.mac-ai-server/config.env")" "MAS_AGENT_MODE=yes" "dry run leaves config.env alone"
 
 # ---- Fix 1 (brief): two runs with an SSID and no password: no remove, added once as open
 fresh
@@ -372,6 +393,37 @@ printf '%s' "$T1" > "$PW_STATE"
 frs "\n$T1\n$NEWPW\n$NEWPW\n"
 assert_ok "stale lock cleared" test -f "$HOME/.first-run/done-password"
 
+# a live copy elsewhere (e.g. a Terminal window on the Mac's screen nobody can see)
+mkdir -p "$T_TMP/live"; printf 'sleep 60\n' > "$T_TMP/live/first-run-setup"
+/bin/bash "$T_TMP/live/first-run-setup" & LIVE=$!; disown "$LIVE"
+fresh; frs_state; mkdir -p "$HOME/.first-run/lock"; echo "$LIVE" > "$HOME/.first-run/lock/pid"
+printf '%s' "$T1" > "$PW_STATE"
+frs "\n$T1\n$NEWPW\n$NEWPW\n"
+out_has "already running in another window" "says where the other copy runs"
+assert_ok "without a keyboard it leaves the other copy alone" ps -p "$LIVE"
+assert_fails "and does nothing itself" test -f "$HOME/.first-run/done-password"
+# with a keyboard (script(1) gives it a terminal) it offers to take over. Only steps without
+# password prompts are left: read -s flushes typed-ahead input on a terminal.
+frs_state done-password done-users; mkdir -p "$HOME/.first-run/lock"; echo "$LIVE" > "$HOME/.first-run/lock/pid"
+printf 'y\n\n' | script -q /dev/null /bin/bash "$FRS" > "$OUT" 2>&1
+out_has "Stopped it. Continuing here." "takes over"
+assert_fails "the other copy was stopped" ps -p "$LIVE"
+assert_ok "and the setup finished here" test ! -e "$HOME/.first-run/pending"
+kill "$LIVE" 2>/dev/null
+
+# SSH key step: a key pasted without its "ssh-ed25519 " is completed; a cut-off one is refused
+ssh-keygen -q -t ed25519 -N '' -C t -f "$T_TMP/k" >/dev/null
+KEYBODY="$(awk '{print $2}' "$T_TMP/k.pub")"
+fresh; frs_state done-password done-users; rm -f "$HOME/.first-run/done-sshkey"
+frs "\n$KEYBODY\nn\n"
+assert_ok "bare key added with its type" grep -qx "ssh-ed25519 $KEYBODY" "$HOME/.ssh/authorized_keys"
+assert_ok "sshkey step done" test -f "$HOME/.first-run/done-sshkey"
+fresh; frs_state done-password done-users; rm -f "$HOME/.first-run/done-sshkey"
+frs "\nssh-ed25519 ${KEYBODY:0:30}\n\n"
+out_has "doesn't look like a whole public key" "cut-off key refused"
+assert_fails "nothing added" test -e "$HOME/.ssh/authorized_keys"
+assert_ok "skipping still finishes the step" test -f "$HOME/.first-run/done-sshkey"
+
 # ================================================================ phase 2 (user side)
 fresh
 HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1 >/dev/null
@@ -428,8 +480,10 @@ touch "$H/.ollama/history" "$H/.mac-ai-server/install.log" "$H/.mac-ai-server/co
       "$MAS_SYSROOT/var/log/ai-netsetup.log" "$H/Documents/d/f" "$H/Desktop/a.txt"
 printf 'MyWiFi\n' > "$(STATE_DIR_T)/new-ssid"
 printf 'Old-Net-1\nMyWiFi\nOld-Net-2\n' > "$NETS"
-FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
+FAKE_DSCL_HOME="$H" FAKE_DSCL_RECORDNAME="$ME sam" ph --root-run "$ME" 0
 assert_eq "$?" 0 "root side runs"
+assert_logged "^dscl \\. -delete /Users/$ME RecordName sam\$"
+assert_not_logged "^dscl \\. -delete /Users/$ME RecordName $ME\$"
 for b in $BROWSERS; do b="${b//\?/ }"; assert_ok "browser data wiped: ~/$b" test ! -e "$H/$b"; done
 assert_logged '^pkill .*-x Safari'
 assert_ok "Ollama chat history wiped" test ! -e "$H/.ollama/history"
@@ -564,8 +618,11 @@ frs6() {  # frs6 <stdin>: only the users step left, a fake mac-ai-server install
   frs "$1"
 }
 frs6 "\n3\n"
-assert_not_logged '^mac-ai-server'
+assert_not_logged 'multiuser'
 assert_ok "users step done" test -f "$HOME/.first-run/done-users"
+# the handover deleted ~/.claude: the tools and status line are put back, once
+assert_logged '^mac-ai-server install --yes --only claude,agent-tools,statusline$'
+assert_ok "extras done" test -f "$HOME/.first-run/done-extras"
 assert_ok "setup finished after step 6" test ! -e "$HOME/.first-run/pending"
 frs6 "\n2\n"
 assert_logged '^mac-ai-server install --yes --only claude,multiuser'
@@ -574,6 +631,45 @@ assert_ok "multi-user saved in the config" grep -qx 'MAS_MULTIUSER=yes' "$HOME/.
 frs6 "\n1\nsam\nkim\n\n"
 assert_logged '^mac-ai-server users add sam'
 assert_logged '^mac-ai-server users add kim'
-out_has "Step 6 of 6" "step header"
+out_has "Step 6 of 7" "step header"
+
+# ================================================================ first-run: model (step 7)
+cat > "$MASF" <<'EOF'
+#!/bin/bash
+echo "mac-ai-server $*" >> "$FAKE_LOG"
+[ "$1" = models ] && [ $# = 1 ] && printf 'AI models that fit this Mac (48 GB memory):\n  big:30b (31.7 GB): Big [in use] [recommended]\n  small:9b (7.2 GB): Small\n\nSwitch with: x\n'
+exit 0
+EOF
+frs7() { fresh; frs_state done-password done-users; mkdir -p "$HOME/.local/bin"; cp "$MASF" "$HOME/.local/bin/mac-ai-server"; frs "$1"; }
+frs7 "\n\n"
+out_has "Step 7 of 7" "model step shown"
+out_has "small:9b (7.2 GB): Small" "lists the models"
+assert_not_logged 'models default'
+assert_ok "model step done" test -f "$HOME/.first-run/done-model"
+frs7 "\nnope:1b\nsmall:9b\n"
+out_has "isn't one of the names above" "unknown model refused"
+assert_logged '^mac-ai-server models default small:9b$'
+assert_not_logged 'models default nope'
+frs7 "\nbig:30b\n"
+assert_not_logged 'models default'
+out_has "already in use" "model in use: nothing to do"
+
+# ================================================================ first-run: login name (step 2)
+frs2() { fresh; frs_state done-password; rm -f "$HOME/.first-run/done-name"; frs "$1"; }
+frs2 "\nSam Test\nmas-zz-test\n"
+out_has "ssh sam@ai-mini" "suggests a login name from the name"
+assert_logged "^dscl \\. -append /Users/$ME RecordName mas-zz-test\$"
+assert_ok "name step done" test -f "$HOME/.first-run/done-name"
+frs2 "\n\nBad Name!\n\n"
+out_has "Use lowercase letters" "invalid login name refused"
+assert_not_logged ' -append '
+frs2 "\n\nroot\n\n"
+out_has "already another account" "existing account refused"
+assert_not_logged ' -append '
+FAKE_DSCL_RECORDNAME="$ME mas-zz-test" frs2 "\n\nmas-zz-test\n"
+out_has "already logs in to this account" "an existing login name isn't added twice"
+assert_not_logged ' -append '
+FAKE_DSCL_RECORDNAME="$ME mas-zz-test" frs2 "\n\n\n"
+out_has "ssh mas-zz-test@ai-mini" "later steps use the login name"
 
 t_summary
