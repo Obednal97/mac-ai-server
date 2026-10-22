@@ -18,6 +18,7 @@ runfn() {
     . "$REPO_DIR/lib/common.sh"; . "$MOD"; "$fn" ) >"$OUT" 2>"$OUT.err"
 }
 has() { grep -q -- "$1" "$OUT" "$OUT.err"; }
+kcdec() { perl -e 'my @k=(0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F); local $/; open F,"<",$ARGV[0]; binmode F; my @b=unpack("C*",<F>); print join "", map { chr($b[$_] ^ $k[$_ % 11]) } 0..$#b' "$MAS_SYSROOT/etc/kcpassword" | tr -d '\0'; }
 
 # --- desktop
 printf 'secret' > "$T_TMP/pw"
@@ -26,6 +27,7 @@ assert_eq "$?" 0 "desktop run ok"
 assert_logged '^pmset -a sleep 0 .*autorestart 1 womp 1'
 assert_not_logged 'autorestartatconnect'
 assert_logged '^systemsetup -setrestartfreeze on'
+assert_logged 'screensaver askForPassword -int 0'
 assert_logged "^defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $ME"
 assert_ok "kcpassword written" test -s "$MAS_SYSROOT/etc/kcpassword"
 assert_not_logged 'secret'
@@ -92,14 +94,25 @@ assert_ok "daily: charge limit action" has "ACTION NEEDED: Set Charge Limit to 8
 assert_ok "daily: accessories action" has "Automatically allow when unlocked"
 assert_fails "daily: no lid-closed action" has "HDMI"
 
-# --- laptop-server (Mode B, R10)
-runfn mod_run MAS_MODE=laptop-server
+# --- laptop-server (Mode B, R10; spec 5: auto-login, like a desktop)
+rm -f "$MAS_SYSROOT/etc/kcpassword"
+runfn mod_run MAS_MODE=laptop-server MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
 assert_logged '^pmset -a disablesleep 1'
 assert_logged '^pmset -c sleep 0 disksleep 0 displaysleep 1 womp 1 tcpkeepalive 1 powernap 0 standby 0'
 assert_logged '^pmset -c lowpowermode 0'
 assert_logged '^systemsetup -setrestartfreeze on'
 assert_not_logged 'autorestart'
+assert_logged "^defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $ME"
+assert_eq "$(kcdec)" "secret" "server: kcpassword written"
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/etc/kcpassword")" 600 "server: kcpassword mode 600"
+assert_not_logged 'askForPassword'
+# FileVault on: skipped with the warning, like a desktop
+rm -f "$MAS_SYSROOT/etc/kcpassword"
+FAKE_OUT_fdesetup="FileVault is On." runfn mod_run MAS_MODE=laptop-server MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
+assert_ok "server: FileVault warning" has "FileVault"
 assert_not_logged 'autoLoginUser'
+assert_fails "server: no kcpassword with FileVault" test -e "$MAS_SYSROOT/etc/kcpassword"
+runfn mod_run MAS_MODE=laptop-server
 assert_ok "server: charge limit action" has "ACTION NEEDED: Set Charge Limit to 80%"
 assert_ok "server: accessories action" has "ACTION NEEDED: Set Accessories to Automatically allow when unlocked"
 assert_ok "server: lid-closed action" has "HDMI dummy plug"
@@ -116,8 +129,13 @@ assert_ok "desktop sleep ok line" has "ok "
 FAKE_OUT_pmset=$'sleep 10\n autorestart 0' runfn mod_check MAS_MODE=desktop
 assert_eq "$?" 1 "desktop check fails with sleep 10"
 assert_ok "fail has a fix" has "fail .* — "
-FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
+FAKE_OUT_defaults="$ME" FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
 assert_eq "$?" 0 "server check passes"
+FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
+assert_eq "$?" 1 "server check fails without auto-login"
+assert_ok "server check names auto-login" has "fail auto-login is off"
+FAKE_OUT_fdesetup="FileVault is On." FAKE_OUT_pmset=$'SleepDisabled 1\n sleep 0' runfn mod_check MAS_MODE=laptop-server
+assert_eq "$?" 0 "server check ok with FileVault on (auto-login skipped)"
 FAKE_OUT_pmset=$' sleep 0' runfn mod_check MAS_MODE=laptop-server
 assert_eq "$?" 1 "server check fails without SleepDisabled"
 FAKE_OUT_pmset=$' sleep 1' runfn mod_check MAS_MODE=laptop-daily

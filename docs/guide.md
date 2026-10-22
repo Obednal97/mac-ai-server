@@ -124,7 +124,7 @@ The installer then works through its steps. Each one starts with a blue `==>` li
 Login password for 'admin' (to set up auto-login):
 ```
 
-On a Mac mini or Mac Studio it asks for the password once more, here. It needs it to set up automatic login.
+On a Mac mini or Mac Studio, or a MacBook in server mode, it asks for the password once more, here. It needs it to set up automatic login.
 
 Later steps you'll see:
 - `==> Homebrew and command-line tools`: this takes a few minutes.

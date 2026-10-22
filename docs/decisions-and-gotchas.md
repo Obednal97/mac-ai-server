@@ -15,7 +15,7 @@ Each entry says what we found and what we decided.
 ### Auto-login and FileVault
 - **Found:** Ollama, tmux and Remote Control need a logged-in user. With FileVault on, the Mac waits for a password at boot after a power cut.
 - **Decision:**
-  - Desktops get auto-login (`/etc/kcpassword`, created with owner-only permissions from the start), and the docs ask for FileVault off.
+  - Desktops and laptops in server mode get auto-login (`/etc/kcpassword`, created with owner-only permissions from the start), and the docs ask for FileVault off. Daily laptops are left as they are.
   - If FileVault is on, auto-login is skipped with a warning.
 
 ### The caffeinate daemon

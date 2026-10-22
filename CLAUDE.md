@@ -308,7 +308,7 @@ Tell them:
 >
 > 3. It shows the plan again and asks **Go ahead and install? [y/N]**. Type **y** and press Return.
 > 4. It asks for your **Password**. Type your Mac login password and press Return. Nothing appears while you type; that's normal.
-> 5. On a Mac mini or Mac Studio, a bit later it asks **Login password for '…' (to set up auto-login)**. Type the same password again.
+> 5. On a Mac mini or Mac Studio, or a MacBook in server mode, a bit later it asks **Login password for '…' (to set up auto-login)**. Type the same password again.
 > 6. Near the end, a few System Settings pages open one by one, and Terminal says **Press Return when done (or to skip)**. I'll tell you what to switch on each time.
 > 7. Leave the window open until it says **Done.** You can carry on talking to me here meanwhile.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Power: never sleep (desktop), restart after power loss, auto-login, laptop modes.
+# Power: never sleep (desktop), restart after power loss, auto-login (desktop and laptop-server), laptop modes.
 # Env: MAS_MODE, MAS_SUDO, MAS_PASSWORD_FILE, SUDO_ASKPASS. MAS_SYSROOT prefixes /etc (tests only).
 # Modes: desktop; laptop-daily (research report Mode A); laptop-server (Mode B, ruling R10).
 
@@ -54,8 +54,22 @@ _mas_pw_autologin() {
     fi
     pw=""
   fi
+}
+
+# Desktop only: no screensaver and no screensaver password (a laptop keeps its screen lock).
+_mas_pw_no_screensaver() {
   defaults -currentHost write com.apple.screensaver idleTime 0
   sudo defaults write /Library/Preferences/com.apple.screensaver askForPassword -int 0 2>/dev/null || true
+}
+
+_mas_pw_check_autologin() {
+  if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
+    echo "ok auto-login skipped (FileVault is on)"
+  elif [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ]; then
+    echo "ok auto-login enabled"
+  else
+    echo "fail auto-login is off — fix: System Settings > Users & Groups > Automatically log in as"; return 1
+  fi
 }
 
 _mas_pw_laptop_actions() {
@@ -76,6 +90,7 @@ mod_run() {
       sudo systemsetup -setrestartfreeze on >/dev/null 2>&1 || true
       mas_step "Auto-login (so services come back after a power cut)"
       _mas_pw_autologin
+      _mas_pw_no_screensaver
       ;;
     laptop-daily)
       mas_step "Power: laptop used daily (plugged in: stay awake; battery: normal sleep)"
@@ -94,6 +109,8 @@ mod_run() {
       _mas_pw_has_cap autorestartatconnect && sudo pmset -a autorestartatconnect 1
       sudo systemsetup -setrestartfreeze on >/dev/null 2>&1 || true
       mas_warn "disablesleep also applies on battery: an unplugged laptop in a bag keeps running. Undo: sudo pmset -a disablesleep 0"
+      mas_step "Auto-login (so services come back after a restart)"
+      _mas_pw_autologin
       _mas_pw_laptop_actions
       mas_action "Lid closed: attach an HDMI dummy plug (or leave the lid slightly open) so it stays awake" "the Mac's HDMI port"
       ;;
@@ -117,17 +134,12 @@ mod_check() {
       if [ "$v" = 0 ]; then echo "ok system sleep is off"; else echo "fail system sleep is '${v:-unknown}' — run: sudo pmset -a sleep 0"; rc=1; fi
       v="$(_mas_pw_val autorestart)"
       if [ "$v" = 1 ]; then echo "ok restarts after power failure"; else echo "fail restart after power failure is off — run: sudo pmset -a autorestart 1"; rc=1; fi
-      if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
-        echo "ok auto-login skipped (FileVault is on)"
-      elif [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ]; then
-        echo "ok auto-login enabled"
-      else
-        echo "fail auto-login is off — fix: System Settings > Users & Groups > Automatically log in as"; rc=1
-      fi
+      _mas_pw_check_autologin || rc=1
       ;;
     laptop-server)
       v="$(_mas_pw_val SleepDisabled)"
       if [ "$v" = 1 ]; then echo "ok lid-close sleep is disabled"; else echo "fail lid-close sleep is not disabled — run: sudo pmset -a disablesleep 1"; rc=1; fi
+      _mas_pw_check_autologin || rc=1
       ;;
     laptop-daily)
       v="$(_mas_pw_val SleepDisabled)"
