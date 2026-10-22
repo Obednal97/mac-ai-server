@@ -33,14 +33,16 @@ Connect the phone to the Mac with a USB-C cable. Wait for the Mac to have been o
 Open the phone's browser and go to:
 
 ```
+http://172.20.10.2
+```
+
+That's the Mac's fixed address on an iPhone's cable connection, and the most reliable way in. The machine name also works, but over the cable it doesn't always load (seen with an iPhone in October 2026). On Android, use the name:
+
+```
 http://ai-mini.local
 ```
 
-Use your machine name. On an iPhone you can also use:
-
-```
-http://172.20.10.2
-```
+Use your own machine name.
 
 ### What each screen shows
 
@@ -48,7 +50,14 @@ http://172.20.10.2
 2. **Tap your network.** A **Password for <name>** box appears, with **Show** to check what you typed. Leave it empty for an open network.
    - Network not listed? Use "Network not listed?" and type its name exactly, including capital letters.
 3. **Tap Join.** "Joining … This usually takes 10 to 30 seconds. Keep the cable plugged in."
-4. **"Connected to <name>."** "The Mac mini will use this Wi-Fi from now on, even after a restart." Unplug the cable; you can turn off Personal Hotspot.
+4. **"Connected to <name>."** "The Mac mini will use this Wi-Fi from now on, even after a restart." Unplug the cable; you can turn off Personal Hotspot. Underneath are the Mac's details on its new network: its **IP address**, its name (`ai-mini.local`), the router, subnet mask, DNS, the Wi-Fi hardware address and, if Tailscale is connected, its Tailscale name and address. Plus the SSH commands, and a tip to reserve the address in your router.
+
+**If the page loses the Mac mid-join.** The moment the Mac gets onto the Wi-Fi, the cable connection often stops answering, so the page may never hear "Connected". After 20 seconds of silence it says so: **"The Mac mini stopped answering over the cable after it started joining…"**, which usually means it worked. To check:
+1. turn off Personal Hotspot and unplug the cable;
+2. put the phone on the same Wi-Fi;
+3. tap **Check**. It opens `http://ai-mini.local` on that Wi-Fi and shows **Connected** with the details above.
+
+The confirmation stays up for **one hour** after a successful join, on every network the Mac is on. During that hour the page only shows the result: choosing a different Wi-Fi works only from the phone on the cable, never from the home network.
 
 The page uses the Mac's own model name ("Mac mini", "Mac Studio", "MacBook Pro"…), or just "Mac" if it can't tell. The examples here use "Mac mini".
 
@@ -109,8 +118,9 @@ tail -f /var/log/ai-netsetup.log
 | Part | Status |
 |---|---|
 | Live scan through the service (network names shown) | Tested |
-| iPhone on USB-C reaching the page (`.local` name and `172.20.10.2`) | Tested |
+| iPhone on USB-C reaching the page | `172.20.10.2`: tested. The `.local` name: worked in the first test, failed in a later one |
 | Joining a network from the page, with progress and "Connected" | Tested |
+| The cable connection dropping as the Mac joins (the page stuck on "Joining…") | Seen in October 2026; the join had worked. Fixed: requests time out, the page explains, and the one-hour confirmation shows the result on the Wi-Fi. Tested in a browser against a stand-in; not yet on a real iPhone. |
 | iPhone link coming up by itself | Fixed and tested: macOS sometimes left it down and the iPhone didn't answer DHCP. The service brings it up and falls back to `172.20.10.2`. It retries every 10 seconds if the link drops. |
 | Android USB tethering | **Not tested** |
 | Wi-Fi hotspot via Internet Sharing | Removed: macOS 27 won't start it without a connection to share |

@@ -250,7 +250,7 @@ assert_ok "dry run card is fake" grep -qF 'mini-dryr-unxx-xxxx' "$TMPDIR/handove
 touch "$MAS_SYSROOT/Library/LaunchDaemons/local.netsetup.plist"
 HANDOVER_WIFI_SSID=MyWiFi ph --phase1 --dry-run
 out_has "a) Phone + USB-C cable" "netsetup fallback section"
-out_has "http://172.20.10.2 on iPhone" "iPhone address on card"
+out_has "http://172.20.10.2   (iPhone; or http://ai-mini.local)" "iPhone address first on the card"
 # Fix 7: Android tethering is marked untested
 out_has "Android: untested" "netsetup card says Android: untested"
 out_lacks "Android: turn" "card still claims Android tethering works"

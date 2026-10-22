@@ -43,12 +43,22 @@ assert_fails "no action when authorized" has "ACTION NEEDED"
 assert_not_logged '[ =]/Applications/WifiScan.app'
 assert_not_logged ' /Library/LaunchDaemons'
 
-# --- re-run: same build leaves the installed app alone (keeps the Location permission)
+# --- re-run: same source leaves the installed app alone (keeps the Location permission), and isn't
+# even rebuilt: swiftc doesn't always produce the same binary twice
+STAMP="$MAS_SYSROOT/usr/local/libexec/ai-netsetup/wifiscan.source"
+assert_ok "source stamp written" test -s "$STAMP"
 touch "$APP/marker"
+runfn mod_run FAKE_OUT_defaults=1 FAKE_SWIFTC_OUT=binary-different-but-same-source
+assert_ok "same source keeps the app" test -f "$APP/marker"
+assert_ok "says unchanged" has "unchanged (same source)"
+assert_not_logged '^swiftc'
+# --- no stamp yet (older install): built, and an identical binary still keeps the app
+rm -f "$STAMP"
 runfn mod_run FAKE_OUT_defaults=1
-assert_ok "unchanged build keeps the app" test -f "$APP/marker"
-assert_ok "says unchanged" has "unchanged"
-# --- changed binary replaces it
+assert_ok "identical build keeps the app" test -f "$APP/marker"
+assert_ok "stamp written after an identical build" test -s "$STAMP"
+# --- changed source (stamp differs) with a changed binary replaces it
+echo old-source > "$STAMP"
 runfn mod_run FAKE_OUT_defaults=1 FAKE_SWIFTC_OUT=binary-v2
 assert_fails "new binary replaces the app" test -f "$APP/marker"
 assert_eq "$(cat "$APP/Contents/MacOS/WifiScan")" binary-v2 "new binary installed"
@@ -69,7 +79,8 @@ runfn mod_run FAKE_OUT_defaults=0
 assert_logged 'defaults write .*LocationServicesEnabled -bool true'
 assert_logged '^killall locationd'
 
-# --- swiftc missing/failing
+# --- swiftc missing/failing (on a build: source changed)
+echo old-source > "$STAMP"
 runfn mod_run FAKE_SWIFTC_RC=1
 assert_eq "$?" 1 "swiftc failure fails the module"
 assert_ok "swiftc failure explained" has "Xcode"

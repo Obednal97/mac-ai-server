@@ -529,7 +529,7 @@ and it restarts by itself after a power cut." ;;
       (Android: untested. Turning on USB tethering may work.)
       Plug the phone into the $MODEL and tap Trust if it asks.
       After a minute, open this in the phone's browser:
-          http://$HOST.local      (or http://172.20.10.2 on iPhone)
+          http://172.20.10.2   (iPhone; or http://$HOST.local)
       Tap your Wi-Fi, enter its password, tap Join. When it says
       Connected, unplug the phone.
 

@@ -98,5 +98,10 @@ out="$(bash "$SCAN" "$R2" 2>&1)"
 case "$out" in *f.txt:1*) _t_pass ;; *) _t_fail "blocklist output names f.txt:1" ;; esac
 case "$out" in *[Ss]ecret*) _t_fail "blocklist pattern/text leaked" ;; *) _t_pass ;; esac
 assert_ok "--generic ignores blocklist" bash "$SCAN" --generic "$R2"
+# GitHub's merge line names the repo owner (public anyway): not flagged; the same name elsewhere is
+printf 'clean\n' > "$R2/f.txt"; git -C "$R2" commit -qam "Merge pull request #7 from Secret-Name/some-branch" -m "Body text"
+assert_ok "owner in GitHub's merge line not flagged" bash "$SCAN" "$R2"
+git -C "$R2" commit -q --allow-empty -m "Thanks secret-name for the idea"
+assert_fails "owner name elsewhere in a message still flagged" bash "$SCAN" "$R2"
 
 t_summary

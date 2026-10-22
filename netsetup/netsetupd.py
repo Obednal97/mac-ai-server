@@ -18,6 +18,11 @@ PORT = int(os.environ.get("NETSETUP_PORT", "80"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = "/Applications/WifiScan.app/Contents/MacOS/WifiScan"
 FORCE_FILE = "/var/run/ai-netsetup-force"     # contains "tether" (testing)
+# After a successful join the page stays up this long on every network, as a confirmation with the
+# Mac's new address: the cable link often drops the moment Wi-Fi comes up, so the phone may only see
+# the result once it is on the same Wi-Fi itself.
+CONFIRM_SECS = int(os.environ.get("NETSETUP_CONFIRM", "3600"))
+TETHER_NET = "172.20.10."   # iPhone Personal Hotspot range; the only place a join may come from after setup
 
 
 def log(*a):
@@ -75,6 +80,36 @@ def wake_tether(ports):
             log("no DHCP from", name, "- using 172.20.10.2")
             sh("networksetup", "-setmanual", name, "172.20.10.2", "255.255.255.240", "172.20.10.1")
             time.sleep(2)
+
+
+def option(dev, name):
+    return sh("ipconfig", "getoption", dev, name).strip()
+
+
+def network_info():
+    """What the confirmation shows: the Mac's address on its new network and how to reach it."""
+    ports = hardware_ports()
+    dev = wifi_dev(ports)
+    ip = ipv4(dev)
+    if not ip: return None
+    ether = ""
+    for line in sh("ifconfig", dev).splitlines():
+        if line.strip().startswith("ether "): ether = line.split()[1]
+    info = {"ip": ip, "subnet": option(dev, "subnet_mask"), "router": option(dev, "router"),
+            "dns": option(dev, "domain_name_server"), "mac": ether, "device": dev,
+            "host": sh("scutil", "--get", "LocalHostName").strip()}
+    try:   # Tailscale, if it's set up and connected (reachable from anywhere)
+        ts = json.loads(sh("/opt/homebrew/bin/tailscale", "status", "--json", timeout=10) or "{}").get("Self") or {}
+        if ts.get("Online"):
+            info["tailscale_name"] = (ts.get("DNSName") or "").rstrip(".")
+            info["tailscale_ip"] = next((a for a in ts.get("TailscaleIPs") or [] if "." in a), "")
+    except (ValueError, AttributeError):
+        pass
+    return info
+
+
+def from_tether(addr):
+    return addr.startswith(TETHER_NET)
 
 
 def tether(ports):
@@ -200,22 +235,33 @@ class Portal(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def may_change(self):
+        """Scanning and joining: from anyone while the Mac is offline (only the phone can reach it
+        then), but once it's on a network only from the phone's cable, never from the network."""
+        return State.mode == "tether" or from_tether(self.client_address[0])
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
         if State.mode == "idle" and not State.result:
             return self.send(200, "<p>This Mac is online. Nothing to set up.</p>")
         if path == "/api/networks":
+            if not self.may_change(): return self.send(200, "[]", "application/json")
             refresh_scan(force="refresh" in self.path)
             return self.send(200, json.dumps(State.networks), "application/json")
         if path == "/api/status":
             host = sh("scutil", "--get", "LocalHostName").strip()
             user = sh("defaults", "read", "/Library/Preferences/com.apple.loginwindow", "autoLoginUser").strip()
+            ok = bool(State.result and State.result.get("ok"))
             return self.send(200, json.dumps({"mode": State.mode, "joining": State.joining, "result": State.result,
-                                              "host": host, "user": user}), "application/json")
+                                              "host": host, "user": user, "net": network_info() if ok else None,
+                                              "confirm_until": int(State.result_at + CONFIRM_SECS) if ok else 0}),
+                             "application/json")
         self.send(200, page())
 
     def do_POST(self):
         if urllib.parse.urlparse(self.path).path != "/api/join": return self.send(404, "")
+        if not self.may_change():
+            return self.send(403, json.dumps({"error": "The Mac is already online. Change its Wi-Fi from the phone cable or System Settings"}), "application/json")
         n = int(self.headers.get("Content-Length", "0"))
         form = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
         ssid, pw = str(form.get("ssid", ""))[:64], str(form.get("password", ""))[:128]
@@ -250,7 +296,9 @@ def unserve_if_still_idle(since):
     # only if nothing changed since this idle period began (a later tether/idle cycle has its own timer)
     if State.mode != "idle" or State.idle_since != since: return
     if State.joining: threading.Timer(30, unserve_if_still_idle, args=(since,)).start()   # after the join
-    else: unserve()
+    else:
+        unserve()
+        State.result = None   # the confirmation is over; a later setup starts fresh
 
 
 def set_mode(mode):
@@ -260,7 +308,9 @@ def set_mode(mode):
     State.mode = mode
     if mode == "idle":
         State.idle_since = since = time.time()
-        threading.Timer(120, unserve_if_still_idle, args=(since,)).start()  # let the page show success
+        # Right after a successful join: the confirmation page, for CONFIRM_SECS. Otherwise 2 minutes.
+        ok = State.result and State.result.get("ok") and time.time() - State.result_at < 60
+        threading.Timer(CONFIRM_SECS if ok else 120, unserve_if_still_idle, args=(since,)).start()
     else:
         if time.time() - State.result_at > 120: State.result = None   # keep a fresh result for the page
         threading.Thread(target=refresh_scan, args=(True,), daemon=True).start()
