@@ -53,6 +53,7 @@ if not isinstance(perm, dict):
     perm = {}
 perm["defaultMode"] = "bypassPermissions"
 d["permissions"] = perm
+# Needed to avoid an interactive prompt when Claude starts in bypass mode.
 d["skipDangerousModePermissionPrompt"] = True
 tmp = p + ".tmp"
 with open(tmp, "w") as fh:

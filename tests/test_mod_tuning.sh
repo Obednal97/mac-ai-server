@@ -24,15 +24,16 @@ runfn() {  # runfn <module> <function> [VAR=value ...]
 has() { grep -q -- "$1" "$OUT" "$OUT.err"; }
 
 # --- tuning: GPU limit + maxfiles
-runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
+FAKE_OUT_sysctl="iogpu.wired_limit_mb: 40960" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
 assert_eq "$?" 0 "tuning run ok"
+assert_logged "^sysctl -w iogpu.wired_limit_mb=40960"
 assert_ok "gpu plist has the plan's limit" grep -q 'iogpu.wired_limit_mb=40960' "$GPLIST"
 assert_ok "maxfiles plist" grep -q '<string>65536</string><string>524288</string>' "$MPLIST"
 assert_logged '^chown root:wheel .*local.gpu-wired-limit.plist'
 assert_logged '^launchctl bootstrap system .*local.gpu-wired-limit.plist'
 assert_logged '^launchctl bootstrap system .*local.maxfiles.plist'
 assert_not_logged 'rm .*Applications'
-runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=24576 MAS_REMOVE_APPS=no
+FAKE_OUT_sysctl="iogpu.wired_limit_mb: 24576" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=24576 MAS_REMOVE_APPS=no
 assert_ok "limit comes from the plan, not hard-coded" grep -q 'iogpu.wired_limit_mb=24576' "$GPLIST"
 # unchanged: no reload
 FAKE_OUT_sysctl="iogpu.wired_limit_mb: 24576" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=24576 MAS_REMOVE_APPS=no
@@ -43,10 +44,21 @@ runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB= MAS_REMOVE_APPS=no
 assert_fails "no gpu plist without a plan limit" test -e "$GPLIST"
 assert_ok "tuning applies" runfn "$TUNE" mod_applies
 
+# read-back differs from the plan: warn and fail
+FAKE_OUT_sysctl="iogpu.wired_limit_mb: 0" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
+assert_eq "$?" 1 "read-back mismatch fails the run"
+assert_ok "mismatch warns" has "expected 40960"
+# launchctl bootstrap fails: a real error, not "already current"
+rm -f "$GPLIST" "$MPLIST"
+FAKE_LAUNCHCTL_BOOTSTRAP_RC=5 FAKE_OUT_sysctl="iogpu.wired_limit_mb: 40960" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
+assert_eq "$?" 1 "bootstrap failure fails the run"
+assert_ok "bootstrap failure is reported" has "Could not install"
+assert_fails "not reported as already current" has "already current"
+
 # --- app removal
 mkdir -p "$MAS_SYSROOT/Applications/Keynote.app" "$MAS_SYSROOT/Applications/Keynote Creator Studio.app" \
   "$MAS_SYSROOT/Applications/iMovie.app" "$MAS_SYSROOT/Applications/Safari.app" "$MAS_SYSROOT/Library/Application Support/GarageBand"
-runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=yes
+FAKE_OUT_sysctl="iogpu.wired_limit_mb: 40960" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=yes
 assert_fails "Keynote removed" test -e "$MAS_SYSROOT/Applications/Keynote.app"
 assert_fails "Keynote Creator Studio removed" test -e "$MAS_SYSROOT/Applications/Keynote Creator Studio.app"
 assert_fails "iMovie removed" test -e "$MAS_SYSROOT/Applications/iMovie.app"
@@ -55,7 +67,7 @@ assert_ok "other apps untouched" test -d "$MAS_SYSROOT/Applications/Safari.app"
 
 # --- tuning check
 GOOD="iogpu.wired_limit_mb: 40960"
-runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
+FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_run MAS_GPU_LIMIT_MB=40960 MAS_REMOVE_APPS=no
 FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
 assert_eq "$?" 0 "tuning check passes"
 FAKE_OUT_sysctl="iogpu.wired_limit_mb: 0" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960

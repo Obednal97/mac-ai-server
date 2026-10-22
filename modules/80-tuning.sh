@@ -11,16 +11,16 @@ _mas_tu_max_plist() { printf '%s/Library/LaunchDaemons/local.maxfiles.plist' "$(
 _mas_tu_limit() { sysctl iogpu.wired_limit_mb 2>/dev/null | awk '{print $NF}'; }
 
 # _mas_tu_install_plist <path> <label> <content>: write it if different, then (re)load it.
-# Returns 0 if it wrote the file, 1 if it was already current.
+# Returns 0 if it changed and loaded, 2 if already current, 1 on error.
 _mas_tu_install_plist() {
   local path="$1" label="$2" content="$3"
-  if [ -f "$path" ] && [ "$(cat "$path")" = "$content" ]; then return 1; fi
-  sudo mkdir -p "$(dirname "$path")"
-  printf '%s\n' "$content" | sudo tee "$path" >/dev/null
-  sudo chown root:wheel "$path"
-  sudo chmod 644 "$path"
+  if [ -f "$path" ] && [ "$(cat "$path")" = "$content" ]; then return 2; fi
+  sudo mkdir -p "$(dirname "$path")" || return 1
+  printf '%s\n' "$content" | sudo tee "$path" >/dev/null || return 1
+  sudo chown root:wheel "$path" || return 1
+  sudo chmod 644 "$path" || return 1
   sudo launchctl bootout "system/$label" 2>/dev/null || true
-  sudo launchctl bootstrap system "$path"
+  sudo launchctl bootstrap system "$path" || return 1
 }
 
 _mas_tu_plist() {  # _mas_tu_plist <label> <program-argument-strings...>
@@ -36,25 +36,36 @@ _mas_tu_plist() {  # _mas_tu_plist <label> <program-argument-strings...>
 }
 
 _mas_tu_gpu() {
-  local mb="${MAS_GPU_LIMIT_MB:-}" path content
+  local mb="${MAS_GPU_LIMIT_MB:-}" path content rc=0 v
   case "$mb" in ''|*[!0-9]*|0) mas_warn "No GPU memory limit in the plan; leaving the macOS default."; return 0 ;; esac
   mas_step "GPU memory limit: ${mb} MB"
   path="$(_mas_tu_gpu_plist)"
   content="$(_mas_tu_plist local.gpu-wired-limit /usr/sbin/sysctl -w "iogpu.wired_limit_mb=$mb")"
-  if ! _mas_tu_install_plist "$path" local.gpu-wired-limit "$content" \
-     && [ "$(_mas_tu_limit)" != "$mb" ]; then
-    # File is current but the live value is not (e.g. after a reset): reload the daemon.
-    sudo launchctl bootout system/local.gpu-wired-limit 2>/dev/null || true
-    sudo launchctl bootstrap system "$path"
+  _mas_tu_install_plist "$path" local.gpu-wired-limit "$content" || rc=$?
+  if [ "$rc" = 1 ]; then
+    mas_warn "Could not install the GPU limit daemon ($path)."
+    return 1
   fi
-  sysctl iogpu.wired_limit_mb
+  # Apply now as well as at boot, then read it back.
+  sudo sysctl -w "iogpu.wired_limit_mb=$mb" >/dev/null 2>&1 || true
+  v="$(_mas_tu_limit)"
+  if [ "$v" != "$mb" ]; then
+    mas_warn "GPU memory limit is '${v:-unknown}' MB after applying, expected $mb MB."
+    return 1
+  fi
+  echo "GPU memory limit is $mb MB."
 }
 
 _mas_tu_maxfiles() {
-  local content
+  local content rc=0
   mas_step "Raising the open-file limit (default 256 is too low for agents and dev servers)"
   content="$(_mas_tu_plist local.maxfiles /bin/launchctl limit maxfiles 65536 524288)"
-  _mas_tu_install_plist "$(_mas_tu_max_plist)" local.maxfiles "$content" || echo "Open-file limit daemon already current."
+  _mas_tu_install_plist "$(_mas_tu_max_plist)" local.maxfiles "$content" || rc=$?
+  case "$rc" in
+    0) echo "Open-file limit daemon installed." ;;
+    2) echo "Open-file limit daemon already current." ;;
+    *) mas_warn "Could not install the open-file limit daemon."; return 1 ;;
+  esac
 }
 
 _mas_tu_remove_apps() {
@@ -76,9 +87,11 @@ _mas_tu_remove_apps() {
 }
 
 mod_run() {
-  _mas_tu_gpu
-  _mas_tu_maxfiles
+  local rc=0
+  _mas_tu_gpu || rc=1
+  _mas_tu_maxfiles || rc=1
   if [ "${MAS_REMOVE_APPS:-no}" = yes ]; then _mas_tu_remove_apps; fi
+  return "$rc"
 }
 
 mod_check() {
