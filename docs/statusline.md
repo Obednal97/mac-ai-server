@@ -18,7 +18,13 @@ claude-statusline-kit | ⎇ main | PR #42 OPEN | (+14,-3)
 | Git | Project, branch, open pull request and uncommitted changes. Hidden outside a git project. |
 | Account | The Claude account you are logged in as. |
 
-With `claude-local`, the kit's local-model support can show that the session isn't using your Claude account, with a $0 cost. What it shows depends on the kit's version.
+With `claude-local`, the status line switches to a local view automatically. It shows the local model and its real context size, drops the money row (local use is free), and says the session isn't using your Claude account:
+
+```
+Model: Local · qwen3.8 27B | Ctx: 12.4% (8.1k) | Session: 12m
+mac-ai-server | ⎇ main | (+0,-0)
+🖥 Local model (Ollama) · not using your Claude account
+```
 
 ## How it is installed
 

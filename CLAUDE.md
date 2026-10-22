@@ -203,7 +203,7 @@ First show the preview, exactly as it appears in the plan (`./install.sh --plan`
 > Want it on the bottom of every Claude Code session? It's a free add-on called claude-statusline-kit."
 
 - Save `MAS_STATUSLINE=yes` or `no`.
-- Mention only if relevant: when you use `claude-local`, the kit's local-model support can show that the session isn't using the Claude account, with a $0 cost. That depends on the kit's version, so don't promise exact wording.
+- Mention only if relevant: when you use `claude-local`, the status line switches to a local view: it names the local model, uses its real context size, hides the money row, and says the session isn't using the Claude account.
 - Installed into `~/claude-statusline-kit`; `mac-ai-server update` refreshes it. The optional account-rotation tool (`rclaude`) is not installed.
 - See `docs/statusline.md`.
 
