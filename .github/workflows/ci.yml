@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Install shellcheck
+        run: brew install shellcheck
+      - name: shellcheck
+        run: |
+          files=$(git ls-files '*.sh')
+          for f in bin/* handover/* mac-ai-server; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          # shellcheck disable=SC2086
+          shellcheck -x --severity=warning $files
+      - name: Shell tests
+        run: bash tests/run.sh
+      - name: Python tests
+        run: |
+          if ls tests/test_*.py >/dev/null 2>&1; then
+            /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py'
+          else
+            echo "no python tests"
+          fi
+      - name: Model tags exist in the registry
+        run: bash tests/ci-model-tags.sh
+      - name: Privacy scan (generic patterns)
+        run: bash tests/privacy-scan.sh --generic
