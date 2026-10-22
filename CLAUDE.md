@@ -78,7 +78,7 @@ Mode:       desktop (always on, plugged in)
 Name:       ai-mini
 
 Recommended AI model: qwen3.8:27b-mxfp8 (31.7 GB)
-  The best accuracy per memory for coding agents. Roughly 10 to 40 words per second ...
+  The best accuracy per memory for coding agents. Roughly 10 to 40 words per second depending on the chip (about 21 on an M5 Pro). ...
 Quick helper model (offered at the end, not downloaded now): qwen3.6:35b-a3b-nvfp4 (23.6 GB)
 
 Other models that fit this Mac:

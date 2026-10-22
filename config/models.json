@@ -62,7 +62,7 @@
       "primary": "qwen3.8:27b-mxfp8", "primary_gb": 31.7,
       "fast": "qwen3.6:35b-a3b-nvfp4", "fast_gb": 23.6,
       "context": 65536, "gpu_limit_mb": 40960,
-      "note": "The best accuracy per memory for coding agents. Roughly 10 to 40 words per second depending on the chip (about 22 on an M5 Pro). The fast model reaches about 86 on an M5 Pro. Qwen 3.8 is newer than the tested Qwen 3.6 and is being re-checked.",
+      "note": "The best accuracy per memory for coding agents. Roughly 10 to 40 words per second depending on the chip (about 21 on an M5 Pro). The fast model reaches about 86 on an M5 Pro. Qwen 3.8 is newer than the tested Qwen 3.6 and is being re-checked.",
       "by_chip_gen": {
         "3": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9},
         "4": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9}

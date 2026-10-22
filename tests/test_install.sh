@@ -29,6 +29,11 @@ assert_ok "plan shows download" has_out "Total download"
 assert_ok "plan checks disk" has_out "Disk space"
 assert_not_logged '^sudo'
 assert_ok "download counts primary only" has_out "about 31.7 GB"
+assert_ok "48 GB note: measured M5 Pro speed" has_out "(about 21 on an M5 Pro)"
+# CLAUDE.md's plan sample shows the start of this note: it must match the real output
+sample="$(grep -A1 '^Recommended AI model: qwen3.8:27b-mxfp8' "$REPO_DIR/CLAUDE.md" | sed -n 2p | sed 's/ \.\.\.$//')"
+assert_ok "CLAUDE.md plan sample note is in sync" test -n "$sample"
+assert_ok "CLAUDE.md plan sample note matches the plan" grep -qF -- "$sample" "$T_TMP/out"
 # primary already downloaded (re-run on a set-up Mac): nothing to download
 FAKE_OUT_ollama=$'NAME ID SIZE MODIFIED\nqwen3.8:27b-mxfp8 abc 31 GB 1 day ago' run --plan
 assert_eq "$(rc)" 0 "plan with model present exits 0"
