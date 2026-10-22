@@ -1,0 +1,9 @@
+#!/bin/bash
+# Force the network setup page on (as if offline with a phone plugged in), for testing:
+#   ai-netsetup-mode tether | auto
+case "${1:-}" in
+  tether) echo "$1" | sudo tee /var/run/ai-netsetup-force >/dev/null ;;
+  auto) sudo rm -f /var/run/ai-netsetup-force ;;
+  *) echo "Usage: ai-netsetup-mode tether|auto"; exit 1 ;;
+esac
+echo "Mode set to $1. Log: tail -f /var/log/ai-netsetup.log"

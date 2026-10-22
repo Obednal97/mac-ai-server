@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake swiftc (its own script). Logs every call; writes $FAKE_SWIFTC_OUT (default "binary-v1") to the -o file.
+# FAKE_SWIFTC_RC makes it fail.
+if [ -n "${FAKE_LOG:-}" ]; then echo "swiftc $*" >> "$FAKE_LOG"; fi
+[ "${FAKE_SWIFTC_RC:-0}" = 0 ] || exit "$FAKE_SWIFTC_RC"
+out=""; prev=""
+for a in "$@"; do [ "$prev" = -o ] && out="$a"; prev="$a"; done
+[ -n "$out" ] && { printf '%s\n' "${FAKE_SWIFTC_OUT:-binary-v1}" > "$out"; chmod +x "$out"; }
+exit 0
