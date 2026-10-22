@@ -63,6 +63,39 @@ FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHC
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "check fails when drop-in missing"
 
+# --- SSH on a fresh Mac without Full Disk Access (I7)
+# primary: launchctl enable + bootstrap (no FDA needed); systemsetup only when that didn't work
+runfn "$REMOTE" mod_run FAKE_LAUNCHCTL_LOADED=1
+assert_logged '^sudo launchctl enable system/com.openssh.sshd'
+assert_logged '^sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist'
+assert_not_logged 'systemsetup -setremotelogin'
+assert_fails "no SSH warning when it came on" has "ACTION NEEDED: Turn on Remote Login"
+# not on after launchctl: systemsetup fallback, which works
+FAKE_NC_RC=1 runfn "$REMOTE" mod_run FAKE_OUT_systemsetup="setremotelogin: On"
+n_en="$(grep -n 'launchctl enable system/com.openssh.sshd' "$FAKE_LOG" | head -1 | cut -d: -f1)"
+n_ss="$(grep -n 'systemsetup -setremotelogin on' "$FAKE_LOG" | head -1 | cut -d: -f1)"
+assert_ok "systemsetup is the fallback, after launchctl" test "${n_ss:-0}" -gt "${n_en:-99}"
+# systemsetup says it needs Full Disk Access (and exits 0): a failure, reported with the manual step
+runfn "$REMOTE" mod_run FAKE_OUT_systemsetup="Turning Remote Login on or off requires Full Disk Access privileges."
+assert_eq "$?" 0 "remote run carries on"
+assert_ok "FDA failure gives the manual step" has "ACTION NEEDED: Turn on Remote Login"
+assert_ok "FDA failure warns" has "Remote Login (SSH) is still off"
+
+# check: no sudo, no systemsetup (needs FDA); launchd state or port 22
+ssh_check() { FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac" "$@"; }
+ssh_check FAKE_LAUNCHCTL_LOADED=1
+assert_ok "ssh ok when sshd is loaded" has "^ok Remote Login (SSH) is on"
+assert_not_logged '^sudo'
+assert_not_logged 'systemsetup'
+ssh_check FAKE_NC_RC=0
+assert_ok "ssh ok when port 22 listens" has "^ok Remote Login (SSH) is on"
+ssh_check
+assert_ok "ssh fail when neither" has "^fail Remote Login (SSH) is off"
+assert_ok "ssh fix without systemsetup" has "sudo launchctl enable system/com.openssh.sshd"
+ssh_check FAKE_LAUNCHCTL_LOADED=1 FAKE_LAUNCHCTL_DISABLED=com.openssh.sshd
+assert_ok "ssh fail when loaded but disabled" has "^fail Remote Login (SSH) is off"
+rm -rf "$MAS_SYSROOT/etc/ssh"   # back to the state the next section expects
+
 # Effective settings, sshd-style: files in sshd_config.d in name order, first value wins.
 RA_OK=(MAS_HOSTNAME="My AI Mac" FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1
        FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)")

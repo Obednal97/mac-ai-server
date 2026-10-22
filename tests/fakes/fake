@@ -17,6 +17,13 @@ if [ "$name" = sudo ]; then
   [ $# -gt 0 ] || exit 0
   exec "$@"
 fi
+# nc -z = nothing listening unless FAKE_NC_RC=0 (never probes the real machine's ports)
+[ "$name" = nc ] && exit "${FAKE_NC_RC:-1}"
+# launchctl print-disabled: FAKE_LAUNCHCTL_DISABLED=<label> is listed as disabled
+if [ "$name" = launchctl ] && [ "${1:-}" = print-disabled ]; then
+  [ -n "${FAKE_LAUNCHCTL_DISABLED:-}" ] && printf '\t"%s" => disabled\n' "$FAKE_LAUNCHCTL_DISABLED"
+  exit 0
+fi
 # launchctl print = "service not loaded" unless FAKE_LAUNCHCTL_LOADED=1
 if [ "$name" = launchctl ] && [ "${1:-}" = print ] && [ "${FAKE_LAUNCHCTL_LOADED:-0}" != 1 ]; then exit 1; fi
 # df is used for real by other tests: pass through unless an output is faked

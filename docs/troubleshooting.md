@@ -32,7 +32,7 @@ If you want to report a problem, `mac-ai-server doctor --report` gives you the c
 | `mac-ai-server: command not found` | This Terminal window was open before the install | Open a new window, or use `~/mac-ai-server/mac-ai-server`. |
 | `claude` over SSH says "Not logged in" | The macOS keychain is locked in plain SSH sessions | Work inside tmux: `tmux new -As main`. That session starts in the desktop session, where the login can be read. |
 | `doctor`: `fail Claude Code isn't logged in` | No Claude login yet | `tmux new -As main`, then `claude`, and follow the login link. |
-| `doctor`: `fail Remote Login (SSH) is off` just after Claude ran it | The check needs a saved admin password, and Claude's shell doesn't have one | In Terminal: `sudo -v && mac-ai-server doctor`. |
+| `doctor`: `fail Remote Login (SSH) is off`, or the install printed `ACTION NEEDED: Turn on Remote Login` | macOS didn't let the installer switch SSH on (the check itself needs no password) | System Settings > General > Sharing > switch on **Remote Login**. Or in Terminal: `sudo launchctl enable system/com.openssh.sshd && sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist`. |
 | The phone app doesn't show the Mac | Remote Control isn't confirmed yet | Run `ai-motd` and do what its last line says. See [remote-access.md](remote-access.md). |
 | `ai-motd`: `Remote Control is waiting for one confirmation` | The `[y/N]` prompt in the hidden window | `tmux attach -t main:remote`, type `y`, then Ctrl-b d. |
 | `doctor`: `fail Ollama isn't answering on localhost:11434` | Ollama stopped | `launchctl kickstart -k gui/$(id -u)/local.ollama`. If it persists, check `/opt/homebrew/var/log/ollama.log`, then `mac-ai-server install --only ollama`. |

@@ -48,6 +48,32 @@ _mas_ra_bad() {
 
 mod_applies() { return 0; }
 
+# _mas_ra_ssh_on: Remote Login is on. Needs neither sudo nor Full Disk Access (systemsetup needs
+# both): sshd is loaded in launchd and not disabled, or something answers on port 22.
+_mas_ra_ssh_on() {
+  nc -z -G 2 127.0.0.1 22 >/dev/null 2>&1 && return 0
+  launchctl print system/com.openssh.sshd >/dev/null 2>&1 || return 1
+  ! launchctl print-disabled system 2>/dev/null | grep -q '"com.openssh.sshd" => disabled'
+}
+
+# _mas_ra_ssh_enable: launchctl first (works without Full Disk Access, which isn't granted until
+# the permissions step at the end); systemsetup only as the fallback. systemsetup can exit 0 while
+# printing that it needs Full Disk Access, so its output counts, not its exit code.
+_mas_ra_ssh_enable() {
+  local out
+  sudo launchctl enable system/com.openssh.sshd
+  sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
+  _mas_ra_ssh_on && { echo "Remote Login (SSH) is on."; return 0; }
+  out="$(sudo systemsetup -setremotelogin on 2>&1)"
+  case "$out" in
+    *"Full Disk Access"*) ;;
+    *) _mas_ra_ssh_on && { echo "Remote Login (SSH) is on."; return 0; } ;;
+  esac
+  mas_warn "Remote Login (SSH) is still off: macOS didn't let the installer turn it on."
+  mas_action "Turn on Remote Login" "System Settings > General > Sharing > Remote Login"
+  return 0
+}
+
 
 mod_run() {
   local host conf fw want
@@ -59,9 +85,7 @@ mod_run() {
   sudo scutil --set LocalHostName "$host"
 
   mas_step "SSH (Remote Login), Screen Sharing, firewall"
-  sudo systemsetup -setremotelogin on >/dev/null 2>&1 || {
-    sudo launchctl enable system/com.openssh.sshd
-    sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true; }
+  _mas_ra_ssh_enable
   want="$(_mas_ra_want_conf)"
   # The old kit's drop-in sorts before ours, so sshd would take its values first. Identical: keep it.
   # Different: move it out of sshd_config.d so ours is the one in effect.
@@ -98,8 +122,8 @@ mod_check() {
   got="$(scutil --get LocalHostName 2>/dev/null)"
   if [ "$got" = "$host" ]; then echo "ok hostname is $host"
   else echo "fail hostname is '${got:-unset}', want $host — run: sudo scutil --set LocalHostName $host"; rc=1; fi
-  if sudo -n systemsetup -getremotelogin 2>/dev/null | grep -qi "On"; then echo "ok Remote Login (SSH) is on"
-  else echo "fail Remote Login (SSH) is off — run: sudo systemsetup -setremotelogin on"; rc=1; fi
+  if _mas_ra_ssh_on; then echo "ok Remote Login (SSH) is on"
+  else echo "fail Remote Login (SSH) is off — run: sudo launchctl enable system/com.openssh.sshd && sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist (or System Settings > General > Sharing > Remote Login)"; rc=1; fi
   bad="$(_mas_ra_bad)"
   if [ -z "$bad" ]; then echo "ok sshd settings in effect (no root login, keepalive)"
   else

@@ -367,6 +367,7 @@ Every manual step is printed as `ACTION NEEDED: <what> | <where>`. Relay **each 
 |---|---|
 | `Sign in to Tailscale: https://…` | "Open this link on your phone or any computer, and sign in or create a free account. The installer waits about 3 minutes for you." Give them the link. |
 | `Disable key expiry for this Mac in the Tailscale admin console` | "So the Mac never gets signed out: open login.tailscale.com/admin/machines, click the **⋯** next to this Mac, and choose **Disable key expiry**." |
+| `Turn on Remote Login` | "macOS didn't let the installer switch on SSH. Open System Settings > General > Sharing and switch on **Remote Login**." |
 | `Enable auto-login: Automatically log in as this user` | "The installer couldn't set automatic login. Open System Settings > Users & Groups and set **Automatically log in as** to your account." |
 | `Click Allow on the 'Wi-Fi Setup' location prompt…` | "A box on the Mac's screen asks whether **Wi-Fi Setup** may use your location. Click **Allow**. It needs this only to see Wi-Fi network names. If you missed it: System Settings > Privacy & Security > Location Services, then switch on Wi-Fi Setup." |
 | `Log in to Claude Code inside tmux…` | Walk them through what it says. In Terminal: `tmux new -As main`, then `claude` and follow the login link. Then `tmux attach -t main:remote`, type `y`, and press Ctrl-b then d to leave it running. |
@@ -404,8 +405,6 @@ Go through every `fail`:
 - Run `doctor` again until it's all `ok` (plus `info`), apart from the expected Full Disk Access line.
 
 **Expected on the first run:** `fail Full Disk Access is off for Terminal — … then restart Terminal`. The switch is on, but it only takes effect once Terminal restarts. Tell the user this fail is expected and will be fixed at the very end (see "Last: restart Terminal" below). Carry on with the rest first.
-
-> In Terminal mode, Claude's own shell has no saved admin password. If the only `fail` is `Remote Login (SSH) is off`, it may be a false alarm. Ask the user to run `sudo -v && mac-ai-server doctor` in Terminal to confirm.
 
 **Check Remote Control.** Run `~/.local/bin/ai-motd`, the welcome screen, and read its last lines:
 - `Remote Control: on.`: done.

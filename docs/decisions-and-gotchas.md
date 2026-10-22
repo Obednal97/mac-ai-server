@@ -126,6 +126,10 @@ Each entry says what we found and what we decided.
 
 ## Networking and Wi-Fi
 
+### Remote Login without Full Disk Access
+- **Found:** `systemsetup -setremotelogin` and `-getremotelogin` need Full Disk Access, which a fresh Mac's Terminal doesn't have until the permissions step at the very end. `systemsetup` may print that it needs it and still exit 0.
+- **Decision:** the installer switches SSH on with `launchctl enable system/com.openssh.sshd` plus `bootstrap` (no Full Disk Access needed), and uses `systemsetup` only as a fallback, treating its "Full Disk Access" message as a failure. The check needs neither sudo nor Full Disk Access: `launchctl print system/com.openssh.sshd` (and not disabled), or something listening on port 22.
+
 ### No Wi-Fi hotspot fallback
 - **Found:**
   - On macOS 27, Internet Sharing is an XPC service that only Apple-signed clients with a private entitlement can start, and `com.apple.nat.plist` is no longer read.
