@@ -16,6 +16,7 @@ cat <<EOF
   ${c}claude${r}          Claude Code with Anthropic's models ${d}(best quality)${r}
   ${c}claude-local${r}    Claude Code on this Mac's model ${d}(private, offline, slower)${r}
   ${c}chat${r}            quick chat with the local model
+  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update · models · help
 
   ${d}Both claude commands share projects, memory and history.${r}
   ${d}Switch any time: run either one with${r} --continue ${d}in a project folder.${r}

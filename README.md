@@ -176,6 +176,24 @@ mac-ai-server help                 Show this list
 - **Before pushing,** run `bash tests/privacy-scan.sh`. It must pass: no personal data in the repo. Install the pre-push hook with `bash tests/install-hooks.sh`.
 - **`CLAUDE.md`** is the setup playbook for end users, not contributor notes.
 
+## Built on
+
+mac-ai-server is mostly glue. The real work is done by these projects, with thanks to their authors:
+
+- **[claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit):** the optional multi-row status line (spend, context, git, account), including its local-model view for `claude-local`. It builds on [ccstatusline](https://github.com/sirmalloc/ccstatusline) and [ccusage](https://github.com/ryoppippi/ccusage).
+- **[Claude Code](https://claude.com/claude-code)** by Anthropic: the agent this whole setup is for.
+- **[Ollama](https://ollama.com):** runs the local models, on Apple's [MLX](https://github.com/ml-explore/mlx) engine.
+- **The local models:** [Qwen](https://github.com/QwenLM), [Gemma](https://ai.google.dev/gemma) and the others listed in [docs/models.md](docs/models.md), each under its own licence.
+- **[Tailscale](https://tailscale.com):** the private network for reaching the Mac from anywhere.
+- **[Homebrew](https://brew.sh):** installs everything else.
+- **Agent tools:**
+  - [Playwright MCP](https://github.com/microsoft/playwright-mcp) for the browser;
+  - [mcp-server-fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch) for reading web pages;
+  - [duckduckgo-mcp-server](https://pypi.org/project/duckduckgo-mcp-server/) and the optional [mcp-searxng](https://www.npmjs.com/package/mcp-searxng) for web search.
+- **Claude Code plugins:** [superpowers](https://github.com/obra/superpowers), code-review and frontend-design, from the official plugin directory.
+
+mac-ai-server is independent and not affiliated with or endorsed by any of these projects.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
