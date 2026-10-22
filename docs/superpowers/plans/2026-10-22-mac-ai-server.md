@@ -21,7 +21,7 @@
 - Manual steps are printed as exactly `ACTION NEEDED: <what> | <where>` (Claude greps for this).
 - No personal data anywhere: no emails, account names, Wi-Fi names (other than the placeholder `MyWiFi`), IP addresses (other than `172.20.10.2` and RFC docs ranges), claude.ai links or real passwords.
 - Commits: author is the GitHub no-reply identity; trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; no session links.
-- The 48 GB tier is fixed: primary `qwen3.6:27b-mxfp8` (30 GB), fast `qwen3.6:35b-a3b-nvfp4` (23 GB), context 65536, GPU limit 40960 MB.
+- Model table and chip/GPU rules: as in spec §5 (approved 22 Oct 2026). GPU limit = RAM − reserve (4/6/8/8/8/8/10/12 GB for 16/24/32/36/48/64/96/128).
 
 ## Review Focus
 
@@ -61,7 +61,7 @@
 
 **Interfaces:**
 - Consumes: `MAS_RAM_GB`, `MAS_CHIP_GEN` (from `detect.sh`).
-- Produces: `mas_tier <ram_gb>` echoes the tier key (`16|24|32|36|48|64|96|128`) or returns 1 when under 16. `mas_plan_model` sets these from the tier, the `by_chip_gen` override and `MAS_MODEL`:
+- Produces: `mas_model_options` prints one line per catalogue model that fits (`tag<TAB>size_gb<TAB>label<TAB>recommended|`), largest first. `mas_gpu_limit_mb <ram_gb>` echoes RAM×1024 − reserve×1024. `mas_tier <ram_gb>` echoes the tier key (`16|24|32|36|48|64|96|128`) or returns 1 when under 16. `mas_plan_model` sets these from the tier, the `by_chip_gen` override and `MAS_MODEL`:
   - `MAS_PRIMARY`, `MAS_PRIMARY_GB`
   - `MAS_FAST`, `MAS_FAST_GB`
   - `MAS_CONTEXT`
@@ -76,9 +76,13 @@
   - With RAM 48 and gen 5, `mas_plan_model` sets `MAS_PRIMARY=qwen3.6:27b-mxfp8`, `MAS_CONTEXT=65536`, `MAS_GPU_LIMIT_MB=40960`.
   - `MAS_MODEL=foo:1b` overrides `MAS_PRIMARY`.
   - A `by_chip_gen` entry for gen 3 applies when `MAS_CHIP_GEN=3`.
+  - With gen 4 at 48 GB, `MAS_PRIMARY=qwen3.8:27b-q8_0`; with gen 5, `qwen3.8:27b-mxfp8`.
+  - `mas_gpu_limit_mb` 16→12288, 24→18432, 48→40960, 128→118784.
+  - `mas_model_options` at 32 GB marks exactly one line `recommended` and lists no model larger than 32 − 8 − 4 GB (context headroom).
 - [ ] **Step 3:** Run `bash tests/run.sh`. Expected: FAIL.
 - [ ] **Step 4:** Implement `lib/plan.sh` with `plutil -extract tiers.<key>.<field> raw -o - config/models.json`. Check `by_chip_gen.<gen>.<field>` first.
-- [ ] **Step 5:** Run the tests. Expected: PASS. Commit: `model tiers and planner`.
+- [ ] **Step 5:** Write `tests/check-model-tags.sh`: for every tag in `models.json`, `curl` `https://registry.ollama.ai/v2/library/<name>/manifests/<tag>` and expect HTTP 200. Run it. Expected: all 200.
+- [ ] **Step 6:** Run the tests. Expected: PASS. Commit: `model tiers and planner`.
 
 ### Task 3: install.sh orchestrator
 
@@ -237,6 +241,7 @@
   - `update` with a newer tier pick prints "Recommended model changed: X → Y. Run: mac-ai-server models default Y" and pulls nothing new;
   - `doctor --report` output contains no hostname, user name or `192.168.`;
   - `models default foo:1b` updates config.env.
+  - `models` with no argument prints the `mas_model_options` list with the installed and recommended models marked.
 - [ ] **Step 2:** Run. Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run. Expected: PASS. Commit: `mac-ai-server command`.
@@ -256,7 +261,7 @@
 - Create: `CLAUDE.md`, `README.md`, `LICENSE` (MIT, "mac-ai-server contributors"), `docs/{guide,macbooks,models,remote-access,network-setup,handover,troubleshooting,decisions-and-gotchas}.md`
 
 - [ ] **Step 1:** `CLAUDE.md` follows spec §4 steps 2–7 exactly:
-  - the question list with defaults;
+  - the question list with defaults, including the model choice: show `install.sh --plan`'s recommendation and its `mas_model_options` list in plain words, default to the recommendation, and save a different pick as `MAS_MODEL`;
   - the two admin-rights modes, with the warning text for askpass;
   - follow `install.log` and relay every `ACTION NEEDED:` line in plain words;
   - finish with `mac-ai-server doctor`;
@@ -277,7 +282,7 @@
 
   Expected on the repo: exit 0.
 - [ ] **Step 2:** Add a pre-push hook in `.git/hooks/pre-push` (local, not committed) that runs the scan.
-- [ ] **Step 3:** Write `ci.yml`: on push and PR, `macos-latest`, run `brew install shellcheck`, `shellcheck` on all shell, `bash tests/run.sh`, `/usr/bin/python3 -m unittest tests/test_netsetupd.py`, then the generic part of the privacy scan.
+- [ ] **Step 3:** Write `ci.yml`: on push and PR, `macos-latest`, run `brew install shellcheck`, `shellcheck` on all shell, `bash tests/run.sh`, `/usr/bin/python3 -m unittest tests/test_netsetupd.py`, `bash tests/check-model-tags.sh`, then the generic part of the privacy scan.
 - [ ] **Step 4:** Run `bash tests/run.sh && bash tests/privacy-scan.sh`. Expected: PASS.
 - [ ] **Step 5:** `gh repo create mac-ai-server --private --source . --push`, then check `gh run watch` for green CI.
 - [ ] **Step 6:** Hand the owner the repo link and `git log` for review. Make it public only when the owner says so (`gh repo edit --visibility public --accept-visibility-change-consequences`).

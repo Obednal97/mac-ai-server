@@ -79,6 +79,7 @@ mac-ai-server/
 2. **User to Claude:** "Set up this Mac using https://github.com/<owner>/mac-ai-server".
 3. **Claude prepares the plan.** It clones the repo to `~/mac-ai-server` and reads `CLAUDE.md`. It runs `./install.sh --plan`, which only detects and prints, and explains the plan in plain English: changes, download size, time.
 4. **Claude asks the questions.** Each has a default, and the answers go to `config.env`:
+   - model: the recommended model for this Mac with a one-line reason, plus the other models that fit (bigger, smaller, faster) with size and expected quality. The default is the recommendation;
    - machine name (default `ai-mini`);
    - MacBook mode (MacBooks only);
    - Tailscale (yes);
@@ -109,9 +110,13 @@ mac-ai-server/
 - Each entry holds `primary`, `primary_gb`, `fast`, `fast_gb`, `context`, `gpu_limit_mb`, an optional per-chip override (`by_chip_gen`) and a plain-English `note` (expected quality and speed).
 - Picks are chosen from the hardware research report. Criteria: the most accurate model for agentic coding that fits with headroom for macOS and the context.
 - The owner approves the complete table before the file is committed.
-- The 48 GB entry is fixed by testing: primary `qwen3.6:27b-mxfp8` (30 GB), fast `qwen3.6:35b-a3b-nvfp4` (23 GB), context 65536, GPU limit 40960 MB.
+- Approved table (22 Oct 2026): 16/24 GB `bonsai-2:27b` (fast `qwen3.5:9b-nvfp4` / `-mxfp8`); 32/36 GB `qwen3.8:27b-nvfp4` (fast `gemma4:26b-nvfp4` / `qwen3.6:35b-a3b-nvfp4`); 48/64 GB `qwen3.8:27b-mxfp8` (fast `qwen3.6:35b-a3b-nvfp4` / `-mxfp8`); 96/128 GB `qwen3.8:27b-mxfp8` with `ornith-1.5:122b-nvfp4` offered as the opt-in upgrade. The 48 GB pick becomes final only after the 4-task benchmark on the reference Mac; if Qwen 3.8 loses, 48 GB keeps `qwen3.6:27b-mxfp8`.
 - Ollama's context length and `claude-local`'s `CLAUDE_CODE_MAX_CONTEXT_TOKENS` are written from the same entry.
 - Overrides: `MODEL=<tag> ./install.sh` or `mac-ai-server models`.
+- Model choice: `install.sh --plan` and `mac-ai-server models` list every catalogue model that fits this Mac (size + tier headroom ≤ RAM − GPU reserve), marking the recommendation. The user keeps the default or picks another; the choice is saved as `MAS_MODEL`.
+- Chip formats: M5 and later default to the MLX tags (`mxfp8`/`nvfp4`). M3/M4 default to the GGUF equivalents (`q8_0`/`q4_K_M`), because MLX tags process long prompts much more slowly on those chips. `by_chip_gen` in `models.json` holds these overrides.
+- GPU reserve by RAM: 4 GB at 16, 6 at 24, 8 at 32–64, 10 at 96, 12 at 128. The GPU limit is RAM − reserve, computed at install, never hard-coded.
+- `tests/check-model-tags.sh` checks every tag in `models.json` against the Ollama registry and runs in CI.
 
 **Desktop** (Mac mini, Mac Studio)
 - Never sleep; restart after a power failure or a freeze; wake on network; High Power mode where supported.
