@@ -28,8 +28,20 @@ assert_ok "plan lists options" has_out "Other models that fit this Mac:"
 assert_ok "plan shows download" has_out "Total download"
 assert_ok "plan checks disk" has_out "Disk space"
 assert_not_logged '^sudo'
+assert_ok "download counts primary only" has_out "about 31.7 GB"
+assert_fails "helper model not in download" has_out "55.3"
+assert_ok "helper is an optional offer" has_out "offered at the end, not downloaded now"
+assert_fails "gen 5 lists no GGUF q8_0" has_out "q8_0"
+assert_fails "gen 5 lists no GGUF q4_K_M" has_out "q4_K_M"
+assert_ok "gen 5 lists MLX" has_out "mxfp8"
 assert_fails "plan ran modules" test -e "$FIX_OUT"
 assert_fails "plan wrote a log" test -e "$HOME/.mac-ai-server/install.log"
+
+MAS_CHIP_GEN=4 MAS_CHIP="Apple M4 Pro" run --plan
+assert_ok "gen 4 recommends GGUF" has_out "Recommended AI model: qwen3.8:27b-q8_0"
+assert_fails "gen 4 lists no mxfp8" has_out "mxfp8"
+assert_fails "gen 4 lists no nvfp4" has_out "nvfp4"
+assert_ok "gen 4 lists GGUF options" has_out "q4_K_M"
 
 MAS_LAPTOP=1 run --plan
 assert_ok "laptop plan asks daily or server" has_out "laptop: choose daily or server"

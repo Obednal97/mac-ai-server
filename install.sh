@@ -146,7 +146,7 @@ print_plan() {
   echo "Recommended AI model: $MAS_PRIMARY${MAS_PRIMARY_GB:+ (${MAS_PRIMARY_GB} GB)}"
   [ -n "$MAS_TIER_NOTE" ] && echo "  $MAS_TIER_NOTE"
   if [ -n "$MAS_FAST" ] && [ "$MAS_FAST" != "$MAS_PRIMARY" ]; then
-    echo "Quick helper model:   $MAS_FAST (${MAS_FAST_GB} GB), for small, fast jobs"
+    echo "Quick helper model (offered at the end, not downloaded now): $MAS_FAST (${MAS_FAST_GB} GB)"
   fi
   echo
   echo "Other models that fit this Mac:"
@@ -159,8 +159,7 @@ $opts
 EOF2
   echo "  (Set MAS_MODEL in $MAS_LOG_DIR/config.env to pick a different one.)"
   echo
-  total="$(awk -v a="${MAS_PRIMARY_GB:-0}" -v b="${MAS_FAST_GB:-0}" -v same="$([ "$MAS_FAST" = "$MAS_PRIMARY" ] && echo 1 || echo 0)" \
-    'BEGIN { if (same) b = 0; printf "%.1f", a + b }')"
+  total="$(awk -v a="${MAS_PRIMARY_GB:-0}" 'BEGIN { printf "%.1f", a }')"
   need="$(awk -v t="$total" 'BEGIN { printf "%d", t + 10.999 }')"  # models plus about 10 GB for tools
   free="${MAS_FREE_GB:-$(mas_free_gb)}"
   echo "Total download: about $total GB of AI models, plus a few GB of tools."
@@ -190,10 +189,10 @@ cleanup() {
 start_keepalive() {
   local parent=$$ secs="${MAS_KEEPALIVE_SECS:-50}"
   (
-    sp=""
+    sp=""; warned=""
     trap '[ -n "$sp" ] && kill "$sp" 2>/dev/null; exit 0' TERM
     while kill -0 "$parent" 2>/dev/null; do
-      if [ "${MAS_SUDO:-terminal}" = askpass ]; then sudo -A -v 2>/dev/null; else sudo -n true 2>/dev/null; fi
+      if [ "${MAS_SUDO:-terminal}" = askpass ]; then sudo -A -v 2>/dev/null; else sudo -n true 2>/dev/null; fi || { [ -n "$warned" ] || echo "!!  sudo refresh failed; later steps may ask for the password." >&2; warned=1; }
       sleep "$secs" &
       sp=$!
       wait "$sp"

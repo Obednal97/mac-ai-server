@@ -97,9 +97,10 @@ mas_plan_model() {
 # Fit rule: size_gb + context headroom <= RAM - GPU reserve. The recommendation is the tier
 # pick for this chip (ignoring MAS_MODEL). Fails under 16 GB.
 mas_model_options() {
-  local tier rec headroom limit_gb n i tag size label mark
+  local tier rec headroom limit_gb n i tag size label mark fmt want_fmt
   tier="$(mas_tier "$MAS_RAM_GB")" || return 1
   rec="$( MAS_MODEL=""; mas_plan_model >/dev/null && echo "$MAS_PRIMARY" )"
+  want_fmt=mlx; [ -n "$(_mas_chip_key)" ] && want_fmt=gguf
   headroom="$MAS_CONTEXT_HEADROOM_GB"
   [ "$tier" = 16 ] && headroom=3
   limit_gb=$(( MAS_RAM_GB - $(_mas_reserve_gb "$MAS_RAM_GB") ))
@@ -108,6 +109,10 @@ mas_model_options() {
     tag="$(_mas_json "catalog.$i.tag")"
     size="$(_mas_num "$(_mas_json "catalog.$i.size_gb")")"
     label="$(_mas_json "catalog.$i.label")"
+    fmt="$(_mas_json "catalog.$i.format" || echo any)"
+    # Chip-format rule (spec section 5): M1-M4 run GGUF, M5 and later (or unknown) run MLX.
+    # Single-format ("any") models always qualify, and so does the recommended tag.
+    if [ "$tag" != "$rec" ] && [ "$fmt" != any ] && [ "$fmt" != "$want_fmt" ]; then continue; fi
     awk -v s="$size" -v h="$headroom" -v l="$limit_gb" 'BEGIN { exit !(s + h <= l) }' || continue
     mark=""; [ "$tag" = "$rec" ] && mark="recommended"
     printf '%s\t%s\t%s\t%s\n' "$tag" "$size" "$label" "$mark"

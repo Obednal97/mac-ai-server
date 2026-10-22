@@ -105,6 +105,15 @@ assert_eq "$(printf '%s\n' "$out" | grep "	recommended$" | cut -f1)" "qwen3.8:27
 # 16 GB still lists its recommended model
 MAS_RAM_GB=16; out="$(mas_model_options)"
 assert_eq "$(printf '%s\n' "$out" | grep "	recommended$" | cut -f1)" "bonsai-2:27b" "16 GB lists bonsai as recommended"
+# chip-format rule: M5+ lists MLX only, M1-M4 list GGUF only (single-format models both)
+MAS_RAM_GB=48 MAS_CHIP_GEN=5; out="$(mas_model_options)"
+assert_eq "$(printf '%s\n' "$out" | grep -cE 'q8_0|q4_K_M')" "0" "gen 5 lists no GGUF"
+assert_ok "gen 5 lists MLX" grep -q mxfp8 <<<"$out"
+assert_ok "gen 5 keeps single-format bonsai" grep -q '^bonsai-2:27b' <<<"$out"
+MAS_CHIP_GEN=4; out="$(mas_model_options)"
+assert_eq "$(printf '%s\n' "$out" | grep -cE 'mxfp8|nvfp4')" "0" "gen 4 lists no MLX"
+assert_eq "$(printf '%s\n' "$out" | grep "	recommended$" | cut -f1)" "qwen3.8:27b-q8_0" "gen 4 recommends GGUF"
+assert_ok "gen 4 keeps bonsai" grep -q '^bonsai-2:27b' <<<"$out"
 # under 16 GB there is nothing to offer
 MAS_RAM_GB=12
 assert_fails "no options under 16 GB" mas_model_options

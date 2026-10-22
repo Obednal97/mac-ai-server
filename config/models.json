@@ -1,21 +1,21 @@
 {
   "catalog": [
-    {"tag": "ornith-1.5:122b-nvfp4",   "size_gb": 73.4, "family": "ornith", "label": "Ornith 1.5 122B (opt-in upgrade: strongest, very new, untested here)"},
-    {"tag": "qwen3.6:35b-a3b-q8_0",    "size_gb": 38.7, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
-    {"tag": "qwen3.6:35b-a3b-mxfp8",   "size_gb": 38,   "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
-    {"tag": "qwen3.8:27b-mxfp8",       "size_gb": 31.7, "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
-    {"tag": "qwen3.6:27b-mxfp8",       "size_gb": 30.4, "family": "qwen3.6", "label": "Qwen 3.6 27B, 8-bit (previous generation, well tested)"},
-    {"tag": "qwen3.8:27b-q8_0",        "size_gb": 30,   "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
-    {"tag": "qwen3.6:35b-a3b-q4_K_M",  "size_gb": 23.9, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
-    {"tag": "qwen3.6:35b-a3b-nvfp4",   "size_gb": 23.6, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
-    {"tag": "qwen3.8:27b-nvfp4",       "size_gb": 18.2, "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
-    {"tag": "qwen3.8:27b-q4_K_M",      "size_gb": 17.7, "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
-    {"tag": "gemma4:26b-nvfp4",        "size_gb": 16.1, "family": "gemma4", "label": "Gemma 4 26B, 4-bit (fast, good all-rounder)"},
-    {"tag": "qwen3.5:9b-mxfp8",        "size_gb": 11.2, "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
-    {"tag": "qwen3.5:9b-q8_0",         "size_gb": 10.4, "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
-    {"tag": "bonsai-2:27b",            "size_gb": 8.3,  "family": "bonsai", "label": "Bonsai 2 27B (compact version of Qwen 3.8, new, lighter on memory)"},
-    {"tag": "qwen3.5:9b-nvfp4",        "size_gb": 7.2,  "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"},
-    {"tag": "qwen3.5:9b-q4_K_M",       "size_gb": 6.6,  "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"}
+    {"tag": "ornith-1.5:122b-nvfp4",   "size_gb": 73.4, "format": "mlx", "family": "ornith", "label": "Ornith 1.5 122B (opt-in upgrade: strongest, very new, untested here)"},
+    {"tag": "qwen3.6:35b-a3b-q8_0",    "size_gb": 38.7, "format": "gguf", "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.6:35b-a3b-mxfp8",   "size_gb": 38,   "format": "mlx", "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.8:27b-mxfp8",       "size_gb": 31.7, "format": "mlx", "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
+    {"tag": "qwen3.6:27b-mxfp8",       "size_gb": 30.4, "format": "mlx", "family": "qwen3.6", "label": "Qwen 3.6 27B, 8-bit (previous generation, well tested)"},
+    {"tag": "qwen3.8:27b-q8_0",        "size_gb": 30,   "format": "gguf", "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
+    {"tag": "qwen3.6:35b-a3b-q4_K_M",  "size_gb": 23.9, "format": "gguf", "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.6:35b-a3b-nvfp4",   "size_gb": 23.6, "format": "mlx", "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.8:27b-nvfp4",       "size_gb": 18.2, "format": "mlx", "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
+    {"tag": "qwen3.8:27b-q4_K_M",      "size_gb": 17.7, "format": "gguf", "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
+    {"tag": "gemma4:26b-nvfp4",        "size_gb": 16.1, "format": "mlx", "family": "gemma4", "label": "Gemma 4 26B, 4-bit (fast, good all-rounder)"},
+    {"tag": "qwen3.5:9b-mxfp8",        "size_gb": 11.2, "format": "mlx", "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
+    {"tag": "qwen3.5:9b-q8_0",         "size_gb": 10.4, "format": "gguf", "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
+    {"tag": "bonsai-2:27b",            "size_gb": 8.3,  "format": "any", "family": "bonsai", "label": "Bonsai 2 27B (compact version of Qwen 3.8, new, lighter on memory)"},
+    {"tag": "qwen3.5:9b-nvfp4",        "size_gb": 7.2,  "format": "mlx", "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"},
+    {"tag": "qwen3.5:9b-q4_K_M",       "size_gb": 6.6,  "format": "gguf", "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"}
   ],
   "tiers": {
     "16": {
