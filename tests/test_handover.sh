@@ -163,6 +163,7 @@ assert_eq "$(stat -f %Lp "$(STATE_DIR_T)/card.txt")" 600 "card saved mode 600"
 assert_ok "card has the temporary password" grep -qF "$TEMP" "$(STATE_DIR_T)/card.txt"
 assert_ok "card names the new Wi-Fi" grep -qF '"MyWiFi" by itself' "$(STATE_DIR_T)/card.txt"
 assert_ok "card uses the current user" grep -qF "ssh $ME@ai-mini.local" "$(STATE_DIR_T)/card.txt"
+assert_eq "$(cat "$(STATE_DIR_T)/new-ssid" 2>/dev/null)" "MyWiFi" "phase 1 records the new owner's network for phase 2"
 
 # ---- Fix 1: re-run with the SSID but no Wi-Fi password leaves the saved network alone
 : > "$FAKE_LOG"
@@ -337,6 +338,7 @@ fresh
 HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1 >/dev/null
 TEMP="$(cat "$(STATE_DIR_T)/temp-password")"
 touch "$HOME/Downloads/old-file"
+mkdir -p "$HOME/Documents/sub"; touch "$HOME/Documents/sub/doc" "$HOME/Desktop/note.txt"
 : > "$FAKE_LOG"
 HANDOVER_DELAY=0 ph --phase2
 assert_eq "$?" 0 "phase 2 starts the daemon"
@@ -348,6 +350,10 @@ assert_ok "plist runs --root-run for this user" grep -qF "<string>--root-run</st
 assert_ok "no password in the plist" sh -c "! grep -qF '$TEMP' '$PL'"
 assert_logged "^launchctl bootstrap system $PL"
 assert_ok "Downloads emptied" test ! -e "$HOME/Downloads/old-file"
+assert_ok "Documents emptied from the session" test ! -e "$HOME/Documents/sub"
+assert_ok "Desktop emptied from the session" test ! -e "$HOME/Desktop/note.txt"
+assert_ok "Start Here kept on the desktop" test -x "$HOME/Desktop/Start Here.command"
+assert_ok "plist passes keep-all-Wi-Fi off by default" grep -qF "<string>$ME</string><string>0</string><string>0</string>" "$PL"
 out_has "ACTION NEEDED: " "Tailscale admin action printed"
 assert_not_logged "$TEMP"
 
@@ -368,8 +374,32 @@ touch "$H/.claude.json" "$H/.zsh_history" "$H/.ssh/id_ed25519" "$H/projects/p/f"
       "$H/.local/bin/first-run-setup" "$H/.first-run/pending" "$H/.zprofile" "$H/Desktop/Start Here.command" \
       "$MAS_SYSROOT/private/tmp/claude-$UIDN/x" "$(STATE_DIR_T)/temp-password" \
       "$MAS_SYSROOT/etc/sudoers.d/90-$ME-nopasswd" "$MAS_SYSROOT/etc/sudoers.d/keep-me" "$PL" "$RU"
+# I5: browser profiles, chat history, logs, Documents/Desktop, saved Wi-Fi (except the new owner's)
+BROWSERS="Library/Safari Library/Containers/com.apple.Safari Library/Cookies Library/Caches/com.apple.Safari"
+BROWSERS="$BROWSERS Library/Application?Support/Google/Chrome Library/Application?Support/Firefox Library/Application?Support/Microsoft?Edge"
+for b in $BROWSERS; do b="${b//\?/ }"; mkdir -p "$H/$b"; touch "$H/$b/data"; done
+mkdir -p "$H/.mac-ai-server" "$H/Documents/d" "$H/Desktop/folder"
+touch "$H/.ollama/history" "$H/.mac-ai-server/install.log" "$H/.mac-ai-server/config.env" \
+      "$MAS_SYSROOT/var/log/ai-netsetup.log" "$H/Documents/d/f" "$H/Desktop/a.txt"
+printf 'MyWiFi\n' > "$(STATE_DIR_T)/new-ssid"
+printf 'Old-Net-1\nMyWiFi\nOld-Net-2\n' > "$NETS"
 FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
 assert_eq "$?" 0 "root side runs"
+for b in $BROWSERS; do b="${b//\?/ }"; assert_ok "browser data wiped: ~/$b" test ! -e "$H/$b"; done
+assert_logged '^pkill .*-x Safari'
+assert_ok "Ollama chat history wiped" test ! -e "$H/.ollama/history"
+assert_ok "install log wiped" test ! -e "$H/.mac-ai-server/install.log"
+assert_ok "installer settings kept" test -e "$H/.mac-ai-server/config.env"
+assert_ok "netsetup log wiped" test ! -e "$MAS_SYSROOT/var/log/ai-netsetup.log"
+assert_ok "Documents emptied" test -d "$H/Documents" -a ! -e "$H/Documents/d"
+assert_ok "Desktop emptied" test ! -e "$H/Desktop/a.txt" -a ! -e "$H/Desktop/folder"
+assert_eq "$(cat "$NETS")" "MyWiFi" "only the new owner's Wi-Fi stays saved"
+assert_logged '^security delete-generic-password -s AirPort -a Old-Net-1 .*System.keychain'
+assert_logged '^security delete-generic-password -s AirPort -a Old-Net-2 '
+assert_not_logged 'delete-generic-password .* MyWiFi '
+out_lacks "Old-Net-1" "the log never names the old networks"
+n_wifi="$(lineno 'removepreferredwirelessnetwork')"; n_ts2="$(lineno '^tailscale logout')"
+assert_ok "Wi-Fi removed after the Tailscale logout" test "${n_wifi:-0}" -gt "${n_ts2:-99}"
 for p in .claude .claude.json .zsh_history .ssh .config/gh .ollama/id_ed25519 Library/Keychains/login.keychain-db Library/Keychains/ABCD-1234 projects/p Downloads/d; do
   assert_ok "wiped ~/$p" test ! -e "$H/$p"
 done
@@ -392,6 +422,23 @@ o_self="$(grep -n 'removed .*local.ai-handover.plist' "$OUT" | cut -d: -f1)"; o_
 assert_ok "wipe, Tailscale, self-removal, shutdown in order" \
   test "${o_wipe:-99}" -lt "${o_ts:-0}" -a "${o_ts:-99}" -lt "${o_self:-0}" -a "${o_self:-99}" -lt "${o_end:-0}"
 
+# HANDOVER_KEEP_WIFI=1 (third argument): every saved network stays
+fresh; mkdir -p "$(STATE_DIR_T)"
+printf 'Old-Net-1\nMyWiFi\n' > "$NETS"
+FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0 1
+assert_eq "$(cat "$NETS" | tr '\n' ,)" "Old-Net-1,MyWiFi," "keep-all keeps every network"
+assert_not_logged 'delete-generic-password'
+# no new owner's network: every saved network goes
+fresh; printf 'Old-Net-1\n' > "$NETS"
+FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
+assert_eq "$(cat "$NETS")" "" "no new owner's network: all removed"
+
+# a folder root can't delete (as macOS privacy protection does) is reported, not ignored
+fresh; mkdir -p "$H/Library/Containers/com.apple.Safari/Data"; chmod 555 "$H/Library/Containers/com.apple.Safari"
+FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
+chmod 755 "$H/Library/Containers/com.apple.Safari"
+out_has "couldn't delete $H/Library/Containers/com.apple.Safari" "blocked browser folder reported"
+
 # root side refuses a home outside /Users (here: outside the redirected /Users) and wipes nothing
 fresh; mkdir -p "$T_TMP/elsewhere/.claude"
 FAKE_DSCL_HOME="$T_TMP/elsewhere" ph --root-run "$ME" 0
@@ -406,6 +453,8 @@ assert_ok "dry run keeps data" test -d "$H/.claude"
 assert_not_logged '^shutdown'
 assert_not_logged '^tailscale logout'
 out_has "[dry-run] shutdown -h now" "dry run reports the shutdown"
+out_has "Library/Safari" "dry run reports the browser folders"
+out_has "would remove" "dry run reports the Wi-Fi removal"
 
 # without MAS_SYSROOT, --root-run is for root only (exits before touching anything)
 ( unset MAS_SYSROOT; FAKE_DSCL_HOME="$T_TMP/nowhere" ph --root-run "$ME" 0 )

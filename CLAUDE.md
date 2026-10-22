@@ -213,7 +213,7 @@ Save `MAS_AGENT_MODE=no` (or `yes` only if they clearly want it).
 
 ### 4h. Handover support (default: no)
 
-> "Are you building this Mac for **someone else**? If so, there's a handover tool that later wipes your accounts and data, and gives the new owner a setup card and a guided first login. Most people don't need it."
+> "Are you building this Mac for **someone else**? If so, there's a handover tool that later signs you out and deletes your data (logins, browser data, saved Wi-Fi, your files; `docs/handover.md` has the exact list), and gives the new owner a setup card and a guided first login. Most people don't need it."
 
 - Save `MAS_HANDOVER=no` or `yes`.
 - If yes, point them to `docs/handover.md` for later. Don't run anything for it now.

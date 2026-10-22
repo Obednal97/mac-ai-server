@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015  # "a && b || c" is used on purpose where c is a warning or die
-# Hands this AI Mac to a new owner: removes the current owner's accounts and data, sets a
-# temporary password, arms the first-run setup assistant, produces the new owner's instruction
+# Hands this AI Mac to a new owner: removes the current owner's accounts and data (the exact list
+# is in docs/handover.md), sets a temporary password, arms the first-run setup assistant, produces the new owner's instruction
 # card, logs out of Tailscale and shuts down.
 #
 #   bash prepare-handover.sh              At a keyboard (local Terminal or a plain SSH session):
@@ -35,6 +35,7 @@
 #   HANDOVER_WIFI_SSID=<name>           new owner's Wi-Fi (optional)
 #   HANDOVER_WIFI_PASSWORD_FILE=<file>  its password (leave out for an open network)
 #   HANDOVER_DELAY=<seconds>            phase 2 wait before the wipe (default 45; local mode 3)
+#   HANDOVER_KEEP_WIFI=1                phase 2 keeps every saved Wi-Fi network (default: only the new owner's)
 # Tests only: MAS_SYSROOT=<dir> prefixes every system path (and lets --root-run run as non-root).
 set -uo pipefail
 
@@ -72,12 +73,19 @@ dq()   { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }   # q
 # Append (not prepend) the standard folders: launchd gives the daemon a minimal PATH, and the
 # caller's PATH comes first so tests can put fakes in front.
 export PATH="${PATH:+$PATH:}/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${HOME:-/var/root}/.local/bin"
+# Browser profiles (relative to the home folder): history, cookies and signed-in sessions.
+BROWSER_DATA=(Library/Safari Library/Containers/com.apple.Safari Library/Cookies Library/HTTPStorages
+  Library/WebKit Library/Caches/com.apple.Safari
+  "Library/Application Support/Google/Chrome" Library/Caches/Google/Chrome
+  "Library/Application Support/Firefox" Library/Caches/Firefox
+  "Library/Application Support/Microsoft Edge" "Library/Caches/Microsoft Edge")
+KEEP_ON_DESKTOP="Start Here.command"
 TAILSCALE="$(command -v tailscale 2>/dev/null || echo /opt/homebrew/bin/tailscale)"
 TMUX_BIN="$(command -v tmux 2>/dev/null || echo /opt/homebrew/bin/tmux)"
 
 # ================================================================ root side (the LaunchDaemon)
 if [ "$MODE" = root ]; then
-  U="${1:?user}"; DELAY="${2:-45}"
+  U="${1:?user}"; DELAY="${2:-45}"; KEEP_WIFI="${3:-0}"
   log() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
   as_user() { launchctl asuser "$UIDN" sudo -u "$U" "$@"; }
   r() { if [ "$DRY_RUN" = 1 ]; then log "[dry-run] $(printf '%q ' "$@")"; else log "+ $*"; "$@"; fi; }
@@ -95,6 +103,12 @@ if [ "$MODE" = root ]; then
     if touch "$t" 2>/dev/null && rm -f "$t"; then log "   (root can delete in $1)"
     else rm -f "$t" 2>/dev/null; log "   !! root CANNOT write in $1"; fi
   }
+  gone() {  # gone <path>: after a real delete, report anything still there (TCC blocks root daemons from some folders)
+    [ "$DRY_RUN" = 1 ] && return 0
+    if [ -e "$1" ] || [ -L "$1" ]; then log "   !! couldn't delete $1 (macOS privacy protection?)"; BLOCKED="$BLOCKED
+   $1"; fi
+  }
+  BLOCKED=""
   [ "$EUID" -eq 0 ] || [ -n "$SYSROOT" ] || { echo "--root-run is for the handover LaunchDaemon only."; exit 1; }
   log "==== handover phase 2 started (dry-run=$DRY_RUN, user=$U, delay=${DELAY}s, pid $$)"
   UIDN="$(id -u "$U" 2>/dev/null)"
@@ -105,6 +119,7 @@ if [ "$MODE" = root ]; then
     rm -f "$PLIST" "$RUNNER"; exit 1
   fi
   sleep "$DELAY"
+  KEEP_SSID="$(cat "$STATE_DIR/new-ssid" 2>/dev/null)"   # the new owner's network, saved by phase 1
 
   log "-- stopping tmux, Remote Control and Claude Code"
   r launchctl asuser "$UIDN" sudo -u "$U" "$TMUX_BIN" kill-server
@@ -117,6 +132,9 @@ if [ "$MODE" = root ]; then
     pkill -TERM -U "$UIDN" -x claude; sleep 3; pkill -KILL -U "$UIDN" -x claude
   fi
 
+  log "-- quitting the browsers"
+  for a in Safari "Google Chrome" firefox "Microsoft Edge"; do r pkill -U "$UIDN" -x "$a"; done
+
   log "-- removing the owner's data"
   for d in "$H" "$H/.cache" "$H/.config" "$H/.local/state" "$H/.ollama" "$H/projects" "$H/Library/Keychains" "$SYSROOT/private/tmp/claude-$UIDN"; do
     wprobe "$d"
@@ -125,13 +143,19 @@ if [ "$MODE" = root ]; then
            .zsh_history .zsh_sessions .bash_history .lesshst .python_history \
            .ssh .gitconfig .git-credentials .config/gh .cache/huggingface .netrc \
            .ollama/id_ed25519 .ollama/id_ed25519.pub \
+           .ollama/history .mac-ai-server/install.log \
            setup-ai-server.log WELCOME.txt .config/opencode .local/share/opencode .local/state/opencode; do
     probe "$H/$p"; [ -e "$H/$p" ] || [ -L "$H/$p" ] && r rm -rf "$H/$p"
   done
+  # Browser profiles: history, cookies and signed-in sessions (e.g. claude.ai, Tailscale, Google).
+  for p in "${BROWSER_DATA[@]}"; do
+    probe "$H/$p"; { [ -e "$H/$p" ] || [ -L "$H/$p" ]; } && { r rm -rf "$H/$p" 2>/dev/null; gone "$H/$p"; }
+  done
+  probe "$SYSROOT/var/log/ai-netsetup.log"; r rm -f "$SYSROOT/var/log/ai-netsetup.log"   # names of joined networks
   # Empty these, keep the folders. macOS privacy protection (TCC) blocks root daemons from
   # ~/Downloads and ~/.Trash, so the phase 2 launcher also empties them from the calling session.
-  for d in .Trash Downloads projects; do
-    probe "$H/$d"; [ -d "$H/$d" ] && { r find "$H/$d" -mindepth 1 -maxdepth 1 -exec rm -rf {} + || log "   !! couldn't empty $H/$d"; }
+  for d in .Trash Downloads projects Documents Desktop; do
+    probe "$H/$d"; [ -d "$H/$d" ] && { r find "$H/$d" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" -exec rm -rf {} + || log "   !! couldn't empty $H/$d"; }
   done
   probe "$SYSROOT/private/tmp/claude-$UIDN"; r rm -rf "$SYSROOT/private/tmp/claude-$UIDN"
   # Login keychain (Claude Code credentials and other secrets). macOS makes a new one, protected by
@@ -149,6 +173,29 @@ if [ "$MODE" = root ]; then
   r "$TAILSCALE" logout
   log "-- password-free sudo (for the setup owner only)"
   for f in "$SYSROOT"/etc/sudoers.d/*-nopasswd; do [ -e "$f" ] && r rm -f "$f"; done
+  # Last before shutdown (Tailscale needed the network): saved Wi-Fi networks and their passwords
+  # in the System keychain, except the new owner's from phase 1. Names are never logged.
+  log "-- saved Wi-Fi networks"
+  WIF="$(networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi/{getline; print $2}')"
+  if [ "$KEEP_WIFI" = 1 ]; then log "   kept, all of them (HANDOVER_KEEP_WIFI=1)"
+  elif [ -z "$WIF" ]; then log "   no Wi-Fi hardware"
+  else
+    nets="$(networksetup -listpreferredwirelessnetworks "$WIF" 2>/dev/null | sed '1d; s/^[[:space:]]*//')"
+    n=0
+    while IFS= read -r ssid; do
+      [ -n "$ssid" ] || continue
+      [ -n "$KEEP_SSID" ] && [ "$ssid" = "$KEEP_SSID" ] && continue
+      n=$((n + 1))
+      [ "$DRY_RUN" = 1 ] && continue
+      networksetup -removepreferredwirelessnetwork "$WIF" "$ssid" >/dev/null 2>&1
+      for _ in 1 2 3; do
+        security delete-generic-password -s AirPort -a "$ssid" "$SYSROOT/Library/Keychains/System.keychain" >/dev/null 2>&1 || break
+      done
+    done <<< "$nets"
+    if [ "$DRY_RUN" = 1 ]; then w="would remove"; else w="removed"; fi
+    log "   $w $n saved network(s) and their passwords; kept: $( [ -n "$KEEP_SSID" ] && echo "the new owner's network" || echo none)"
+  fi
+  [ -z "$BLOCKED" ] || log "!! left in place (clear these by hand next time, see docs/handover.md):$BLOCKED"
   log "-- removing the one-shot daemon"
   rm -f "$PLIST" "$RUNNER"; rmdir "$LIBEXEC" 2>/dev/null
   log "   removed $PLIST and $RUNNER"
@@ -319,6 +366,7 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
     # A re-run has no password (its file is deleted after the first read). Re-adding the network
     # now would save it as an open network, so keep it, and its keychain password, as they are.
     echo "\"$NEW_SSID\" is already saved; left as it is."
+    [ "$DRY_RUN" = 1 ] || { mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR" && ( umask 077; printf '%s\n' "$NEW_SSID" > "$STATE_DIR/new-ssid" ); }
   elif [ "$DRY_RUN" = 1 ]; then
     wifi_saved "$NEW_SSID" && run sudo networksetup -removepreferredwirelessnetwork "$WIFI_IF" "$NEW_SSID"
     run sudo networksetup -addpreferredwirelessnetworkatindex "$WIFI_IF" "$NEW_SSID" 0 "$( [ -n "$NEW_WIFI_PW" ] && echo WPA2 || echo OPEN)"
@@ -332,7 +380,8 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
       sudo networksetup -addpreferredwirelessnetworkatindex "$WIFI_IF" "$NEW_SSID" 0 WPA2 >/dev/null &&
       printf 'add-generic-password -U -a %s -s AirPort -l %s -D "AirPort network password" -w %s -T /usr/libexec/airportd /Library/Keychains/System.keychain\n' \
         "$(dq "$NEW_SSID")" "$(dq "$NEW_SSID")" "$(dq "$NEW_WIFI_PW")" | sudo security -i >/dev/null
-    fi && echo "Saved \"$NEW_SSID\" as the first network to join." ||
+    fi && echo "Saved \"$NEW_SSID\" as the first network to join." &&
+      { mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR" && ( umask 077; printf '%s\n' "$NEW_SSID" > "$STATE_DIR/new-ssid" ); } ||
       warn "Couldn't save that network; the card falls back to the setup options."
   fi
   unset NEW_WIFI_PW
@@ -488,7 +537,7 @@ phase2() {  # phase2 <delay seconds>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string><string>$RUNNER</string>$( [ "$DRY_RUN" = 1 ] && printf '<string>--dry-run</string>')
-    <string>--root-run</string><string>$USER</string><string>$delay</string>
+    <string>--root-run</string><string>$USER</string><string>$delay</string><string>$( [ "${HANDOVER_KEEP_WIFI:-0}" = 1 ] && echo 1 || echo 0)</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>LaunchOnlyOnce</key><true/>
@@ -502,11 +551,17 @@ EOF
   sudo launchctl bootstrap system "$PLIST" || die "launchctl bootstrap failed; nothing was wiped."
   # The daemon now waits $delay s. Meanwhile empty the folders macOS hides from root daemons (TCC);
   # this session may be allowed in (Claude Code's shell can read ~/Downloads, not ~/.Trash).
-  for i in "$HOME/Downloads" "$HOME/.Trash"; do
+  for i in "$HOME/Downloads" "$HOME/.Trash" "$HOME/Documents" "$HOME/Desktop"; do
     [ -d "$i" ] || continue
     if ! ls -A "$i" >/dev/null 2>&1; then warn "$i can't be read from this session (macOS privacy protection); it is left as is."
-    elif [ "$DRY_RUN" = 1 ]; then echo "[dry-run] empty $i ($(find "$i" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ') items; readable from this session)"
-    else find "$i" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; echo "Emptied $i."; fi
+    elif [ "$DRY_RUN" = 1 ]; then echo "[dry-run] empty $i ($(find "$i" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" | wc -l | tr -d ' ') items; readable from this session)"
+    else find "$i" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" -exec rm -rf {} + 2>/dev/null; echo "Emptied $i."; fi
+  done
+  # Browser data as well (Safari's is closed to root daemons, this session may be allowed in).
+  for i in "${BROWSER_DATA[@]}"; do
+    [ -e "$HOME/$i" ] || continue
+    if [ "$DRY_RUN" = 1 ]; then echo "[dry-run] delete ~/$i"
+    else rm -rf "${HOME:?}/$i" 2>/dev/null; [ -e "$HOME/$i" ] && warn "$HOME/$i can't be deleted from this session; the handover daemon tries again."; fi
   done
   sleep 1
   local pid; pid="$(sudo launchctl print "system/$LABEL" 2>/dev/null | awk '/^\tpid = /{print $3}')"
@@ -548,14 +603,17 @@ case "$MODE" in
     cat <<EOF
 ${b}This prepares the Mac for its new owner. It will:${rst}
   • Delete your Claude Code login, history and memory, your shell history and your keychain
-  • Delete everything in ~/projects (copy anything you want to keep first!)
+  • Delete browser data (Safari, Chrome, Firefox, Edge: history, cookies, sign-ins)
+  • Delete everything in ~/projects, ~/Documents, ~/Downloads and on the Desktop
+    (copy anything you want to keep first!)
+  • Delete every saved Wi-Fi network and its password, except the new owner's
   • Remove this Mac from your Tailscale network
   • Change the password of '$USER' to a new temporary one
   • Turn off password-free sudo, if it was set up
   • Shut the Mac down
 
 ${yel}If you're connected remotely, you'll lose access at the end. That's expected.${rst}
-Installed software, Ollama models, saved Wi-Fi and system settings are kept.
+Installed software, Ollama models and system settings are kept (see docs/handover.md).
 EOF
     [ "$DRY_RUN" = 1 ] && echo "${b}DRY RUN: nothing will be changed.${rst}"
     read -r -p "Type HANDOVER to continue: " c; [ "$c" = HANDOVER ] || die "Aborted."

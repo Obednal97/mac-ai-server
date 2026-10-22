@@ -1,7 +1,7 @@
 # Handover: building a Mac for someone else
 
 Use this if you set up the Mac and then give it to someone else. The handover tool:
-- **wipes your accounts and data**;
+- **deletes your logins and data**, from the list below (anything not on it stays);
 - **sets a temporary password** and prints a **setup card** for the new owner;
 - **arms a guided first-login assistant**, so the new owner picks their own password and connects their own Tailscale;
 - **logs out of Tailscale and shuts the Mac down.**
@@ -10,29 +10,39 @@ You don't need any of this for a Mac you keep.
 
 > **This deletes things for real.** Read the whole page first, and always do a dry run (below) before the real thing.
 
-## What's kept and what's deleted
+## What's deleted and what's kept
 
-**Kept:**
-- installed software and the Ollama models;
-- saved Wi-Fi networks;
-- all system settings, including the Location permission for the Wi-Fi setup page.
+This is the complete list. The new owner gets the same admin account, so anything not deleted here is theirs to see.
 
-**Deleted:**
-- your Claude Code login, history and memory (`~/.claude`, `~/.claude.json`);
-- the login keychain;
-- shell history and `~/.ssh`;
-- git and GitHub credentials, and Hugging Face tokens;
-- Ollama's identity key;
-- everything in `~/projects` and `~/Downloads`;
-- Claude's temporary files.
+**Deleted (phase 2):**
+- your Claude Code login, history and memory (`~/.claude`, `~/.claude.json`, Claude's caches and temporary files);
+- the login keychain (saved passwords, Claude Code's login);
+- **every saved Wi-Fi network and its password** in the System keychain, except the new owner's network from phase 1. Set `HANDOVER_KEEP_WIFI=1` for phase 2 to keep them all;
+- **browser data** for Safari, Chrome, Firefox and Edge: history, cookies and signed-in sessions (`~/Library/Safari`, `~/Library/Containers/com.apple.Safari`, `~/Library/Cookies`, `~/Library/HTTPStorages`, `~/Library/WebKit`, the browsers' caches, and the `Application Support` folders of Chrome, Firefox and Edge). The browsers are quit first;
+- shell history (zsh, bash, `less`, Python) and `~/.ssh`;
+- git and GitHub credentials (`~/.gitconfig`, `~/.git-credentials`, `~/.config/gh`, `~/.netrc`) and Hugging Face tokens;
+- Ollama's identity key and its chat history (`~/.ollama/history`, the `chat` prompts);
+- the installer's log `~/.mac-ai-server/install.log` (Tailscale sign-in link, addresses, names) and the Wi-Fi setup log `/var/log/ai-netsetup.log` (names of joined networks);
+- everything in `~/projects`, `~/Documents`, `~/Downloads`, `~/.Trash` and on the Desktop, except **Start Here**;
+- `~/WELCOME.txt` and opencode's settings, if present.
 
 **Removed:**
 - passwordless admin (agent mode);
 - the Mac from your Tailscale network.
 
+**Kept:**
+- installed software and the Ollama models;
+- the new owner's Wi-Fi network (or all networks with `HANDOVER_KEEP_WIFI=1`);
+- the installer's settings (`~/.mac-ai-server/config.env`: machine name and choices, no secrets);
+- all system settings, including the Location permission for the Wi-Fi setup page;
+- anything else in the home folder that isn't on the list above, e.g. other apps' data in `~/Library`.
+
+**What macOS may block.** macOS privacy protection (TCC) keeps the root service out of some folders, typically Safari's data, `~/.Trash` and sometimes `~/Documents` or `~/Downloads`. Phase 2 therefore also empties these folders and deletes the browser data from your own session, which can usually get in once Terminal has Full Disk Access. Whatever is still blocked is listed in `/var/log/ai-handover.log` as `couldn't delete …`. **The dry run shows it in advance** (`NOT READABLE by root`). For anything it lists, before the real phase 2:
+- in the browser, sign out of your accounts and clear its history (Safari: History > Clear History, all history);
+- empty the Trash in Finder.
+
 **Before you start:**
-- **Copy anything you want out of `~/projects`.**
-- **Empty the Trash yourself** in Finder if it matters. macOS privacy protection keeps scripts out of `~/.Trash`, so the handover may not be able to empty it.
+- **Copy anything you want out of `~/projects`, `~/Documents`, `~/Downloads` and the Desktop.**
 
 ## The three ways to run it
 
@@ -76,7 +86,7 @@ Phase 1 runs inside your live session and doesn't cut it off:
 - **Temporary password.** It checks your current password, then sets a random temporary one (e.g. `mini-abcd-efgh-jkmn`).
 - **Auto-login and keychain.** It updates auto-login to match straight away, and re-locks the login keychain with the same password, so Claude Code keeps working even if the Mac restarts before phase 2.
 - **Restart and SSH.** It turns on restart after a power failure, and allows SSH logins with a password again.
-- **Wi-Fi.** It pre-loads the new owner's Wi-Fi as the first network to join. Your current network stays, so the session isn't affected. If that network is already saved and you give no password, it's left as it is.
+- **Wi-Fi.** It pre-loads the new owner's Wi-Fi as the first network to join. Your current network stays for now, so the session isn't affected; phase 2 deletes it. If that network is already saved and you give no password, it's left as it is.
 - **The assistant.** It arms the first-run assistant and puts **Start Here** on the desktop.
 - **The card.** It prints the card and saves it to `/var/tmp/ai-handover/card.txt`, readable only by you. Send it to the new owner privately.
 
@@ -87,12 +97,15 @@ Running phase 1 again is safe. It keeps the first temporary password; add `--for
 Phase 2 installs a **one-shot system service** (a root LaunchDaemon), starts it and returns at once. The service runs outside Claude's process, so it carries on after Claude is stopped:
 
 1. It **waits 45 seconds** (`HANDOVER_DELAY`), so Claude can send its last message.
-2. It stops tmux, Remote Control and every `claude` process.
+2. It stops tmux, Remote Control and every `claude` process, and quits the browsers.
 3. It deletes the data listed above.
 4. It logs out of Tailscale and removes passwordless admin.
-5. It deletes itself and **shuts the Mac down**.
+5. It deletes the saved Wi-Fi networks (except the new owner's).
+6. It deletes itself and **shuts the Mac down**.
 
-Every step is logged to `/var/log/ai-handover.log`. The log is readable by admins only, holds no secrets and is kept.
+Before the 45 seconds start, the launcher also empties `~/Downloads`, `~/.Trash`, `~/Documents` and the Desktop and deletes the browser data from your own session, because macOS can block the root service from them.
+
+Every step is logged to `/var/log/ai-handover.log`. The log is readable by admins only, holds no secrets or network names, and is kept.
 
 Afterwards, delete the Mac from your Tailscale admin page. The script prints this as an `ACTION NEEDED` line.
 
@@ -126,6 +139,7 @@ The script reads each password file once and deletes it. The passwords reach the
 | `HANDOVER_WIFI_SSID` | The new owner's Wi-Fi name (optional). |
 | `HANDOVER_WIFI_PASSWORD_FILE` | A file with its password. Leave it out for an open network. |
 | `HANDOVER_DELAY` | Seconds phase 2 waits before the wipe. The default is 45 (3 in local mode). |
+| `HANDOVER_KEEP_WIFI` | `1` makes phase 2 keep every saved Wi-Fi network. By default only the new owner's network is kept. |
 
 ## The card
 
