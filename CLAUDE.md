@@ -211,6 +211,8 @@ Explain the risk plainly:
 
 Save `MAS_AGENT_MODE=no` (or `yes` only if they clearly want it).
 
+To turn it off later: set `MAS_AGENT_MODE=no` in `config.env` and run `mac-ai-server install --only agent-mode` (admin password). `doctor` reports `ok agent mode is off`, or a `fail` line while it's still on.
+
 ### 4h. Handover support (default: no)
 
 > "Are you building this Mac for **someone else**? If so, there's a handover tool that later signs you out and deletes your data (logins, browser data, saved Wi-Fi, your files; `docs/handover.md` has the exact list), and gives the new owner a setup card and a guided first login. Most people don't need it."

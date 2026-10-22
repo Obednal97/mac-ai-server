@@ -80,6 +80,8 @@ Your answers are saved in `~/.mac-ai-server/config.env`.
 
 Convenient on an unattended machine, but nothing stands between a mistake, or a harmful instruction Claude reads on a web page, and your whole Mac. Leave it off unless the Mac holds nothing you care about. Handover always removes it.
 
+**Turning agent mode off again.** Set `MAS_AGENT_MODE=no` in `~/.mac-ai-server/config.env`, then run `mac-ai-server install --only agent-mode` in Terminal (it needs the admin password once more). It removes the passwordless-admin file and the two Claude Code settings it added (`defaultMode: bypassPermissions` and `skipDangerousModePermissionPrompt`), and leaves your other Claude Code settings alone. `mac-ai-server doctor` then says `ok agent mode is off`; while it is still on with `MAS_AGENT_MODE=no`, doctor shows a `fail` line with this fix.
+
 **About giving Claude your password.** If you choose this:
 - **Where the password goes:** what you type becomes part of the conversation. It goes to Anthropic with your other messages and stays in Claude Code's history files on this Mac.
 - **What Claude does with it:** it puts the password in a temporary file only your account can read, uses it for this one install, and deletes the file at the end.
