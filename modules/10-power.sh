@@ -4,6 +4,9 @@
 # Modes: desktop; laptop-daily (research report Mode A); laptop-server (Mode B, ruling R10).
 
 _mas_pw_user() { printf '%s' "${MAS_USER:-$(id -un)}"; }
+# The old root keychain service, removed by mod_run (see _mas_pw_keychain_keeper_off).
+_mas_pw_ku_bin() { printf '%s' "${MAS_SYSROOT:-}/usr/local/libexec/mac-ai-server/keychain-unlock"; }
+_mas_pw_ku_plist() { printf '%s' "${MAS_SYSROOT:-}/Library/LaunchDaemons/local.keychain-unlock.plist"; }
 _mas_pw_has_cap() { pmset -g cap 2>/dev/null | grep -qi "$1"; }
 
 mod_applies() { return 0; }
@@ -54,14 +57,16 @@ _mas_pw_autologin() {
     fi
     pw=""
   fi
-  _mas_pw_unlocked_login
 }
 
-# Without this, auto-login can stop at the lock screen: the login keychain then stays locked and
-# Claude Code reports "not logged in" over SSH until someone unlocks the screen. Only when auto-login is on.
-_mas_pw_unlocked_login() {
-  [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ] || return 0
-  sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
+# An earlier version installed a root service (local.keychain-unlock) to keep the keychain unlocked.
+# It couldn't help: the keychain's lock state is per login session, and auto-login already unlocks it
+# for the desktop. SSH logins unlock it themselves now (bin/ai-keychain-unlock, set up by 60-claude).
+_mas_pw_keychain_keeper_off() {
+  [ -f "$(_mas_pw_ku_plist)" ] || return 0
+  sudo launchctl bootout system/local.keychain-unlock 2>/dev/null
+  sudo rm -f "$(_mas_pw_ku_plist)" "$(_mas_pw_ku_bin)"
+  echo "Removed the old keychain service (local.keychain-unlock); SSH logins unlock the keychain themselves now."
 }
 
 # Desktop only: no screensaver and no screensaver password (a laptop keeps its screen lock).
@@ -74,12 +79,7 @@ _mas_pw_check_autologin() {
   if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
     echo "ok auto-login skipped (FileVault is on)"
   elif [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ]; then
-    case "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked 2>/dev/null)" in
-      1|true|YES)
-        echo "fail auto-login stops at the lock screen (so the keychain stays locked) — run: sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false"
-        return 1 ;;
-    esac
-    echo "ok auto-login enabled (straight to the desktop)"
+    echo "ok auto-login enabled"
   else
     echo "fail auto-login is off — fix: System Settings > Users & Groups > Automatically log in as"; return 1
   fi
@@ -91,6 +91,7 @@ _mas_pw_laptop_actions() {
 }
 
 mod_run() {
+  _mas_pw_keychain_keeper_off
   case "${MAS_MODE:-desktop}" in
     desktop)
       mas_step "Power: never sleep, restart after power failure or freeze, wake on network"

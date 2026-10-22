@@ -432,8 +432,6 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
   run sudo rm -f "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
   # (On this model autorestart and autorestartatconnect are mutually exclusive; set only autorestart.)
   run sudo pmset -a autorestart 1
-  # Auto-login straight to the desktop, not the lock screen (which leaves the keychain locked).
-  run sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
 
   # Pre-load the new owner's Wi-Fi so the Mac joins it by itself at their place. (networksetup
   # with a password crashes on macOS 27, so the password goes into the System keychain the way

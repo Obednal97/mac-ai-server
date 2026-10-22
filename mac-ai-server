@@ -46,6 +46,7 @@ mac-ai-server: look after your AI server
   mac-ai-server permissions          Walk through the macOS permissions
   mac-ai-server users                Show the accounts; users add <name> [--wireguard] / card / remove
   mac-ai-server token set            Log Claude Code in without the keychain (claude setup-token)
+  mac-ai-server unlock               Unlock the login keychain in this SSH session
   mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
   mac-ai-server install [options]    Run the installer again (--plan shows what it would do)
   mac-ai-server help                 Show this list
@@ -525,6 +526,7 @@ case "$cmd" in
   handover)    cmd_handover "$@" ;;
   users)       cmd_users "$@" ;;
   token)       cmd_token "$@" ;;
+  unlock)      exec /bin/bash "$MAS_ROOT/bin/ai-keychain-unlock" ;;
   install)     exec "$MAS_INSTALL_SH" "$@" ;;
   *) usage >&2; echo >&2; mas_die "Unknown command '$cmd'." ;;
 esac

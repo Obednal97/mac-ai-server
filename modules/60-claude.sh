@@ -57,7 +57,7 @@ mod_run() {
 
   mkdir -p "$bin" "$HOME/projects" "$(dirname "$agent")"
   local f tmp
-  for f in ai-motd claude-remote-loop ai-tmux-start; do _mas_cl_put "$MAS_MOD_ROOT/bin/$f" "$bin/$f"; done
+  for f in ai-motd claude-remote-loop ai-tmux-start ai-keychain-unlock; do _mas_cl_put "$MAS_MOD_ROOT/bin/$f" "$bin/$f"; done
   model_e="$(_mas_cl_esc "$MAS_PRIMARY")"; ctx_e="$(_mas_cl_esc "$MAS_CONTEXT")"
   tmp="$(mktemp "${TMPDIR:-/tmp}/mas-cl.XXXXXX")" || return 1
   sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$tmp"
@@ -112,6 +112,16 @@ if [ -n "$SSH_CONNECTION" ] && [ -z "$TMUX" ] && [ -t 1 ]; then
 fi
 BLOCK
   fi
+  # SSH logins start with the login keychain locked (its state is per login session): unlock it
+  # there too, so Claude Code and gh find their logins. A block of its own, so older installs get it.
+  if ! grep -q '# mac-ai-server: keychain' "$HOME/.zprofile" 2>/dev/null; then
+    cat >> "$HOME/.zprofile" <<'BLOCK'
+
+# mac-ai-server: keychain
+# SSH login: unlock the login keychain for this session (quiet when it already is)
+[ -n "$SSH_CONNECTION" ] && [ -x ~/.local/bin/ai-keychain-unlock ] && ~/.local/bin/ai-keychain-unlock --login
+BLOCK
+  fi
   # shellcheck disable=SC2016  # literal line for the shell profile
   grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
@@ -149,6 +159,15 @@ mod_check() {
   n="$(_mas_cl_zprofile_count)"
   if [ "$n" -lt 1 ]; then
     echo "fail The SSH welcome block is missing from ~/.zprofile — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if ! grep -q '# mac-ai-server: keychain' "$HOME/.zprofile" 2>/dev/null; then
+    echo "fail SSH logins don't unlock the keychain (block missing from ~/.zprofile) — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if ! security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 \
+     && [ -f "$HOME/Library/Keychains/login.keychain-db" ]; then
+    echo "fail the login keychain is locked in this session, so logins kept in it (Claude Code, gh) can't be read — run: mac-ai-server unlock"
     return 1
   fi
   if ! _mas_cl_logged_in; then

@@ -174,6 +174,11 @@ runfn mod_run "${PLAN[@]}" MAS_MULTIUSER=no
 assert_fails "shared claude-local removed when turned off" test -e "$SYSBIN/claude-local"
 assert_ok "a file that isn't ours is left alone" test -e "$SYSBIN/chat"
 rm -f "$SYSBIN/chat"
+# SSH logins unlock the keychain: script installed, its own ~/.zprofile block, added once
+runfn mod_run "${PLAN[@]}"
+assert_ok "keychain unlock script installed" cmp -s "$REPO_DIR/bin/ai-keychain-unlock" "$BIN/ai-keychain-unlock"
+assert_eq "$(grep -c '# mac-ai-server: keychain' "$HOME/.zprofile")" 1 "keychain block added once"
+assert_ok "runs at SSH login only" grep -q 'SSH_CONNECTION.*ai-keychain-unlock --login' "$HOME/.zprofile"
 # claude-local never uses a setup-token login; the shell profile loads one only when the file exists
 assert_ok "claude-local drops the token" grep -qx 'unset CLAUDE_CODE_OAUTH_TOKEN.*' "$BIN/claude-local"
 assert_eq "$(grep -c 'mac-ai-server/claude-token' "$HOME/.zshrc")" 1 "token line added once"
