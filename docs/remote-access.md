@@ -73,7 +73,11 @@ You'll see the **welcome screen**:
   tmux new -As main   keep work running after you disconnect (Ctrl-b d to detach)
 ```
 
-**Always work inside tmux over SSH.** Run `tmux new -As main`. If the connection drops, everything keeps running, and the same command reconnects you.
+**SSH logins go straight into tmux.** After the welcome screen, every SSH login with a terminal attaches to the `main` session (a block at the end of `~/.zprofile`). If the connection drops, everything keeps running, and the next login puts you back where you were.
+- **Ctrl-b** then **d** leaves the session running and returns to a plain shell; `exit` there disconnects. `tmux new -As main` goes back in.
+- It's skipped while the first-run assistant is unfinished, for logins without a terminal (`scp`, `ssh host <command>`, editors' remote connections), and when you connect with `LC_NOTMUX=1 ssh <user>@<name>` (a Mac's `ssh` passes `LC_*` variables on by default).
+- It never lands in the Remote Control window: if `remote` was the last one shown, it switches to the first window.
+- To turn it off: `MAS_TMUX_ATTACH=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`.
 
 This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. macOS keeps the keychain's locked or unlocked state **per login session**: auto-login unlocks it for the desktop (and tmux), but every SSH login starts with it locked. So each SSH login unlocks it for itself (a line in `~/.zprofile` runs `ai-keychain-unlock --login`):
 - **With password-free admin (agent mode),** it does it silently, using the auto-login password macOS already keeps in `/etc/kcpassword` (readable only with admin rights). No new copy of the password is made, and it reaches the keychain through standard input, never a command line.

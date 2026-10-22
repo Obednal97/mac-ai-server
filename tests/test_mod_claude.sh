@@ -204,6 +204,41 @@ cp "$HOME/.zshrc" "$T_TMP/zshrc.bak"; grep -v 'mac-ai-server: term' "$T_TMP/zshr
 runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_ok "check notices a missing term block" has "fail unknown terminal types"
 cp "$T_TMP/zshrc.bak" "$HOME/.zshrc"
+# SSH logins go straight into tmux: block added once, last, skipped without a terminal; MAS_TMUX_ATTACH=no removes it
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "tmux attach block added once"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "still once after a re-run"
+attach="$(sed -n '/^# mac-ai-server: tmux attach$/,/^# mac-ai-server: tmux attach end$/p' "$HOME/.zprofile")"
+TM="$T_TMP/tm"; mkdir -p "$TM"; printf '#!/bin/sh\necho "tmux $*" >> "$FAKE_LOG"\n' > "$TM/tmux"; chmod +x "$TM/tmux"
+zp() { : > "$FAKE_LOG"; env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" TERM=xterm-ghostty "$@" /bin/zsh -fc "$attach" >/dev/null 2>&1 < /dev/null; }
+zp SSH_CONNECTION="1 2 3 4"
+assert_not_logged '^tmux new'   # no terminal (scp, ssh host cmd)
+: > "$FAKE_LOG"
+env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" TERM=xterm-ghostty SSH_CONNECTION="1 2 3 4" \
+  script -q /dev/null /bin/zsh -fc "$attach
+echo TERM=\$TERM >> \$FAKE_LOG" > /dev/null 2>&1 < /dev/null
+assert_logged '^tmux new -As main -c '
+assert_logged '^TERM=xterm-256color$'
+: > "$FAKE_LOG"
+env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" SSH_CONNECTION="1 2 3 4" LC_NOTMUX=1 \
+  script -q /dev/null /bin/zsh -fc "$attach" > /dev/null 2>&1 < /dev/null
+assert_not_logged '^tmux new'
+: > "$FAKE_LOG"; env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" \
+  script -q /dev/null /bin/zsh -fc "$attach" > /dev/null 2>&1 < /dev/null
+assert_not_logged '^tmux new'   # not over SSH
+mkdir -p "$HOME/.first-run"; touch "$HOME/.first-run/pending"; : > "$FAKE_LOG"
+env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" SSH_CONNECTION="1 2 3 4" \
+  script -q /dev/null /bin/zsh -fc "$attach" > /dev/null 2>&1 < /dev/null
+assert_not_logged '^tmux new'   # setup assistant first
+rm -rf "$HOME/.first-run"
+echo 'export KEEP=1' >> "$HOME/.zprofile"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_ATTACH=no
+assert_fails "MAS_TMUX_ATTACH=no removes the block" grep -q 'mac-ai-server: tmux attach' "$HOME/.zprofile"
+assert_ok "and keeps the rest" grep -qx 'export KEEP=1' "$HOME/.zprofile"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "check notices the missing block" has "fail SSH logins don't go straight into tmux"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "added back"
 # a setup-token file counts as logged in
 rm -f "$HOME/.claude/.credentials.json"; mkdir -p "$HOME/.mac-ai-server"; echo tok > "$HOME/.mac-ai-server/claude-token"
 runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1
