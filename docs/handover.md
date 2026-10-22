@@ -103,9 +103,10 @@ Claude never runs phase 2 unless you explicitly ask. Something like:
 ```
 Run handover phase 1 on this Mac. My current password is <password>.
 The new owner's Wi-Fi is "<network name>" with password <Wi-Fi password>.
-Put both passwords in files under /var/tmp with a quoted heredoc (umask 077), never on a
-command line, and run:
-HANDOVER_PASSWORD_FILE=<file> HANDOVER_WIFI_SSID="<network name>" HANDOVER_WIFI_PASSWORD_FILE=<file> mac-ai-server handover phase1
+Make a private folder with  d="$(mktemp -d "${TMPDIR:-/var/tmp}/mas-pw.XXXXXX")"  and write each
+password into its own file there with your file-writing tool, never in a shell command. Then run:
+HANDOVER_PASSWORD_FILE=<folder>/pw HANDOVER_WIFI_SSID="<network name>" HANDOVER_WIFI_PASSWORD_FILE=<folder>/wifi mac-ai-server handover phase1
+Delete the folder afterwards with rm -rf, even if it failed.
 Show me the new owner's card in full.
 ```
 
@@ -115,7 +116,7 @@ Then, when you've saved the card:
 Now run mac-ai-server handover phase2, tell me it has started, and stop.
 ```
 
-The script reads each password file once and deletes it. The passwords reach the system on standard input, so they never show in the process list. They are in Claude's conversation history, which phase 2 deletes.
+The script reads each password file once and deletes it. The passwords reach the system on standard input, and Claude writes the files with its file-writing tool, so they never show in the process list or in a command. They are in Claude's conversation history, which phase 2 deletes.
 
 **Inputs:**
 

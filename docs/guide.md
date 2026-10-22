@@ -195,6 +195,7 @@ info App Management — can't be checked automatically (System Settings > Privac
 - `ok` means it works.
 - `fail` lines say what's wrong and end with the fix (`— run: …`).
 - `info` lines are switches macOS doesn't let scripts check. Make sure you did them.
+- `fail Full Disk Access is off for Terminal` is expected the first time. The switch only takes effect after Terminal restarts. At the very end, Claude asks you to quit Terminal (Cmd+Q), reopen it, run `cd ~ && claude --continue` to get back to the same conversation, and then check again.
 
 **One more step for Remote Control (using the Mac from your phone).** It needs a one-time "trust" of the projects folder. Claude checks the welcome screen (`ai-motd`) and tells you if you need to:
 1. In Terminal, run `cd ~/projects && claude`, accept the prompt, and type `/exit`.

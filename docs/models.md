@@ -30,7 +30,7 @@ Ollama 0.19 and later run models on Apple's own MLX engine. Tags ending in `mxfp
 
 - **M5 and newer:** get the MLX tags. They're the fastest there.
 - **M3 and M4:** get the equivalent **GGUF** tags, `q8_0` (8-bit) or `q4_K_M` (4-bit). MLX tags read long prompts much more slowly on those chips, and coding agents send long prompts.
-- **M1 and M2:** not supported; they get the M3 choices with a warning.
+- **M1 and M2:** warned, not blocked (untested); they get the M3 choices.
 
 ## The tier table
 
@@ -76,13 +76,13 @@ These come from `config/models.json`. Speeds are words (tokens) per second while
 - **24 GB:** a compromise tier for everyday coding help and small multi-file changes, at roughly 8 to 18 words per second (faster on Pro chips). If Bonsai struggles on long agent runs, switch to the 9B model, which is steadier but less capable.
 - **32 GB:** the first tier with a full-size 27B coding model. Good quality for real projects, but a basic (non-Pro) chip gives only about 8 to 17 words per second. The fast model trades some accuracy for speed.
 - **36 GB:** a strong 27B model with room for long sessions. Roughly 10 to 17 words per second on Pro chips, and up to about 60 on Max chips. The fast model is about 4 times quicker but thinks a lot, so answers can take as long.
-- **48 GB:** the best accuracy per GB for coding agents. Roughly 10 to 40 words per second depending on the chip, about 22 measured on an M5 Pro. The fast model reached about 86 on an M5 Pro.
+- **48 GB:** the best accuracy per GB for coding agents. Roughly 10 to 40 words per second depending on the chip; Qwen 3.8 measured about 21 tokens/s on an M5 Pro. The fast model reached about 86 on an M5 Pro.
 - **64 GB:** the same top-accuracy 27B model with room for very long sessions. The fast model is 8-bit and much quicker, with some loss of depth.
 - **96 / 128 GB:** the proven 27B model with lots of spare memory. Roughly 20 to 90 words per second; these are estimates, not measurements. Ornith 1.5 122B is the opt-in upgrade.
 
 ### What has been tested
 
-- **Tested:** only the **48 GB row on an M5 Pro** (Mac mini, macOS 27). Qwen 3.8 27B 8-bit passed 4 of 4 checkable tasks at about 21 words per second. It used about 6 times fewer thinking words and was 3 to 6 times faster per task than Qwen 3.6 27B.
+- **Tested:** only the **48 GB row on an M5 Pro** (Mac mini, macOS 27). Qwen 3.8 27B 8-bit passed 4 of 4 checkable tasks at about 21 tokens/s (measured 20.6). It used about 6 times fewer thinking words and was 3 to 6 times faster per task than Qwen 3.6 27B.
 - **Untested:** every other row, and every M3 and M4 choice. The picks follow published benchmarks and memory arithmetic. If you run one, please share `mac-ai-server doctor --report` and how it felt.
 - **Model tags:** every tag in the table is checked against the Ollama library automatically (`tests/check-model-tags.sh`).
 
@@ -116,4 +116,4 @@ You decide.
 
 ## Why speeds vary
 
-Ollama's MLX engine uses **speculative decoding**: it drafts a few words ahead and checks them in one go. On the reference Mac it accepted 1 to 3 drafted words per step. That's why a 30 GB model runs at about 22 words per second, when plain arithmetic (memory speed divided by model size) predicts 8 to 10. Predictable text such as code and repeated phrases speeds up the most, so this guide gives ranges, not single numbers.
+Ollama's MLX engine uses **speculative decoding**: it drafts a few words ahead and checks them in one go. On the reference Mac it accepted 1 to 3 drafted words per step. That's why Qwen 3.8 27B 8-bit (32 GB) runs at about 21 tokens/s on an M5 Pro, when plain arithmetic (memory speed divided by model size) predicts 8 to 10. Predictable text such as code and repeated phrases speeds up the most, so this guide gives ranges, not single numbers.

@@ -89,7 +89,7 @@ Each entry says what we found and what we decided.
 - **Found:**
   - Since 0.19, Ollama's Apple Silicon path uses MLX: tags ending in `mxfp8` and `nvfp4`.
   - Its MLX runner also does speculative decoding: the log showed it accepting 1 to 3 drafted tokens per step.
-  - That explains the measured ~22 tokens per second for a 30 GB model, when memory bandwidth alone predicts 8 to 10.
+  - That explains the measured ~21 tokens/s for Qwen 3.8 27B 8-bit (and ~22 for Qwen 3.6 27B), when memory bandwidth alone predicts 8 to 10.
 - **Decision:** the docs quote speed *ranges*, because speed depends on how predictable the text is.
 
 ### M3/M4: GGUF, not MLX
@@ -97,7 +97,7 @@ Each entry says what we found and what we decided.
 - **Decision:** M3 and M4 default to the GGUF equivalents (`q8_0`, `q4_K_M`) through `by_chip_gen` in `config/models.json`. M5 and later get MLX.
 
 ### Qwen 3.8 vs Qwen 3.6 (48 GB)
-- **Found:** on the reference Mac, `qwen3.8:27b-mxfp8` passed 4 of 4 checkable tasks at about 21 tokens per second, against Qwen 3.6 27B:
+- **Found:** on the reference Mac, `qwen3.8:27b-mxfp8` passed 4 of 4 checkable tasks at about 21 tokens/s (measured 20.6), against Qwen 3.6 27B:
   - it used about **6 times fewer thinking tokens**;
   - it was **3 to 6 times faster per task**.
 

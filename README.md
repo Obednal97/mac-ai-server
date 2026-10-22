@@ -18,9 +18,8 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
 - **Use it from your phone.** Remote Control lets you start and steer Claude Code sessions on this Mac from the Claude app.
 - **Reach it from anywhere** (optional): [Tailscale](https://tailscale.com) gives you a private network between your devices, and nothing is exposed to the internet. SSH and Screen Sharing are switched on too.
 - **It looks after itself.**
-  - A Mac mini or Mac Studio never sleeps.
-  - It restarts after a power cut and logs itself back in.
-  - It installs security updates automatically.
+  - A Mac mini or Mac Studio never sleeps, restarts by itself after a power cut and logs itself back in. (MacBooks work differently; see [docs/macbooks.md](docs/macbooks.md).)
+  - Every Mac installs security updates automatically.
 - **Agent tools.** Web search, a web page reader and a hidden browser work even with the local model, plus three helpful Claude Code plugins.
 - **Phone Wi-Fi setup.** Moved the Mac somewhere new, with no screen? Plug in your phone and pick the Wi-Fi from a web page.
 - **One everyday command:** `mac-ai-server`, to update, check, or switch models.
@@ -33,7 +32,7 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
 ## Requirements
 
 - **A Mac with Apple Silicon, M3 or newer.**
-  - M1 and M2 get a warning but aren't blocked.
+  - M1 and M2 are warned, not blocked (untested).
   - Intel Macs aren't supported.
 - **16 GB to 128 GB of memory.** More memory means a bigger, more capable model.
 - **macOS 26 or 27.**

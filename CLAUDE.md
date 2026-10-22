@@ -20,9 +20,10 @@ How to talk to them:
 1. **Never invent steps.** Every command and manual step in this file comes from the scripts. If the installer doesn't print a step, don't tell the user to do it.
    - If you're unsure, read the module in `modules/` or the doc in `docs/`.
    - If you're still unsure, say so.
-2. **Passwords are handled in one way only.** The admin password may go into a temporary file passed through `MAS_PASSWORD_FILE` (step 5, option B), and nowhere else.
-   - Never put it on a command line, in `config.env`, in a note, in memory or in any other file.
-   - Delete the temporary file when the install ends, even if it failed.
+2. **Passwords are handled in one way only.** The admin password may go into a temporary file in a private folder, passed through `MAS_PASSWORD_FILE` (step 5, option B), and nowhere else.
+   - The one exception is handover: the temporary files passed as `HANDOVER_PASSWORD_FILE` and `HANDOVER_WIFI_PASSWORD_FILE` (see `docs/handover.md`). They are made the same way.
+   - Write password files with your file-writing tool. Never put a password in a shell command, `config.env`, a note, memory or any other file.
+   - Delete the private folder when the run ends, even if it failed.
 3. **Never run handover phase 2** (`mac-ai-server handover phase2` or `prepare-handover.sh --phase2`) unless the user has explicitly asked for it in this conversation. It wipes the owner's data and shuts the Mac down.
 4. **Re-running is safe.** Every module checks the current state before it changes anything. After a failure, fix the cause and run the installer again.
 5. **Check before you claim.** Say "it's working" only after `mac-ai-server doctor` (or the relevant check) says `ok`.
@@ -94,7 +95,7 @@ Disk space: 316 GB free, about 42 GB needed. That's enough.
 |---|---|---|
 | `This Mac isn't supported: it needs an Apple Silicon chip` | It's an Intel Mac. | Stop. Explain kindly that it can't run these models. |
 | `...it needs at least 16 GB to run the AI models` | Not enough memory. | Stop. Explain the same way. |
-| `This is an M1 chip` / `M2 chip` (a warning) | It may work, but it's untested. | Explain the warning and ask whether they want to carry on. |
+| `This is an M1 chip` / `M2 chip` (a warning) | M1 and M2 are warned, not blocked: it may work, but it's untested. | Explain the warning and ask whether they want to carry on. |
 | `Disk space: Not enough.` | The Mac needs more free space. | Tell them how much to free up. Optionally offer the app removal setting (see "Other settings" below). |
 
 **Explain the plan in plain English.** Cover what it will set up, in a sentence each:
@@ -124,13 +125,13 @@ Ask these one at a time. Each one has a default; if the user says "just use the 
 
 ### 4a. AI model (default: the recommendation)
 
-Use the plan's "Recommended AI model" and "Other models that fit this Mac" lines. Say it in plain words. For example:
+Use the plan's "Recommended AI model" and "Other models that fit this Mac" lines. Describe each model with its label from the plan (the text after the size), in plain words. For example, on a 48 GB M5 Mac:
 
-> "For your Mac I recommend **Qwen 3.8 27B, 8-bit** (about 32 GB). It's the most accurate model for coding that fits comfortably. Expect roughly 10 to 40 words per second.
+> "For your Mac I recommend **Qwen 3.8 27B, 8-bit (best accuracy for coding)**, about 32 GB. It's the most accurate model for coding that fits comfortably: about 21 words per second on an M5 Pro, and roughly 10 to 40 depending on the chip.
 > Other options that fit:
-> - **Qwen 3.6 27B, 8-bit** (30 GB): the previous generation, well tested.
-> - **Qwen 3.6 35B-A3B, 4-bit** (24 GB): much faster per word, but it thinks a lot, so answers aren't always quicker.
-> - **Qwen 3.8 27B, 4-bit** (18 GB): smaller download, slightly less accurate.
+> - **Qwen 3.6 27B, 8-bit (previous generation, well tested)**, 30 GB.
+> - **Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)**, 24 GB. Its answers aren't always quicker, because of all the thinking.
+> - **Qwen 3.8 27B, 4-bit (strong coding, slower)**, 18 GB.
 > - Smaller ones (7–16 GB) are faster but noticeably weaker.
 >
 > Shall I use the recommended one?"
@@ -253,6 +254,8 @@ Don't save this choice in `config.env`. Option 2 is passed for a single run only
 
 ### 4k. Write the config
 
+**If `~/.mac-ai-server/config.env` already exists** (an earlier install), read it first. For each value in it, keep it or ask the user about it, and tell them what was there. Never overwrite the file blindly; change only the lines that need changing.
+
 Write only what you asked about:
 
 ```bash
@@ -313,32 +316,37 @@ Then follow the log, as described in step 6.
 
 Only after the warning in 4j, and only if they typed the password in this conversation:
 
-1. **Write the password to a private temporary file.** Use a quoted heredoc, so the password never appears on a command line, and remember the printed path:
+1. **Make a private folder** and remember the printed path:
 
    ```bash
-   f="$(mktemp "${TMPDIR:-/var/tmp}/mas-pw.XXXXXX")" && cat > "$f" <<'EOF'
-   <the password exactly as typed>
-   EOF
-   echo "$f"
+   d="$(mktemp -d "${TMPDIR:-/var/tmp}/mas-pw.XXXXXX")" && echo "$d"
    ```
 
-   `mktemp` creates the file readable by this account only. When you run it, the closing `EOF` must be at the very start of its line, with no spaces before it.
+   `mktemp -d` creates the folder readable by this account only (mode 0700).
 
-2. **Run the installer in the background.** It can take over an hour, so don't wait in the foreground. Replace `<path>` with the printed path:
+2. **Write the password into `<folder>/pw` with your file-writing tool** (Write), containing only the password. **Never put the password in a shell command**: no heredoc, no `echo`, no `printf`. Command text can be seen by other programs while it runs.
+
+3. **Run the installer in the background.** It can take over an hour, so don't wait in the foreground. Replace `<folder>` with the printed path:
 
    ```bash
-   MAS_SUDO=askpass MAS_PASSWORD_FILE=<path> ~/mac-ai-server/install.sh --yes
+   MAS_NO_TTY=1 MAS_SUDO=askpass MAS_PASSWORD_FILE=<folder>/pw ~/mac-ai-server/install.sh --yes
    ```
 
-   `--yes` is needed because there's no keyboard prompt in this mode. The installer reads the file, hands it to `sudo` through a private helper, and deletes the file when it ends.
+   - `--yes` is needed because there's no keyboard prompt in this mode.
+   - `MAS_NO_TTY=1` stops it from waiting for a keyboard that isn't there.
+   - The installer reads the file and hands it to `sudo` through a private helper. Once it has started using the file, it deletes it when it exits. Step 4 covers the cases where it stops earlier.
 
-3. **When it ends, successfully or not, make sure the file is gone:**
+4. **When it ends, successfully or not, delete the folder:**
 
    ```bash
-   rm -f <path>; [ ! -e <path> ] && echo "password file deleted"
+   rm -rf <folder>; [ ! -e <folder> ] && echo "password folder deleted"
    ```
 
-   Tell the user it's deleted. Never reuse the path or write the password anywhere else.
+   Tell the user it's deleted. Never write the password anywhere else.
+
+**Running it again in this mode.** Because the installer deletes the password file when it exits, a re-run (after a failure, or later with `--only`) needs a fresh file. Repeat steps 1 to 4 with a new folder.
+
+**If the log says `sudo rejected the password.`,** the password was wrong. Delete the folder, tell the user, and ask them to type the password again. Then repeat steps 1 to 4.
 
 The System Settings pages still open on the Mac's screen. Relay each step (step 6). In this mode the installer doesn't wait for Return between them, so give the user a moment for each one.
 
@@ -365,7 +373,7 @@ Every manual step is printed as `ACTION NEEDED: <what> | <where>`. Relay **each 
 | `turn on 'Allow full disk access for remote users'` | "In Sharing, click the **(i)** next to Remote Login and switch on **Allow full disk access for remote users**." |
 | `turn on Location Services for Wi-Fi Setup` | "Switch on **Wi-Fi Setup** in the Location Services list." |
 | `Set Charge Limit to 80%` / `set Charge Limit to 80%` | "In System Settings > Battery, set the charge limit to 80%. It keeps the battery healthy on a laptop that's always plugged in." |
-| `Set Accessories to Automatically allow when unlocked` | "In Privacy & Security > Accessories, choose **Automatically allow when unlocked**." |
+| `Set Accessories to Automatically allow when unlocked` / `set Accessories to 'Automatically allow when unlocked'` | "In Privacy & Security > Accessories, choose **Automatically allow when unlocked**." |
 | `Lid closed: attach an HDMI dummy plug…` | "To keep it awake with the lid closed, plug an HDMI dummy plug (a small, cheap adapter) into the HDMI port, or leave the lid slightly open." |
 | `after the shutdown, delete '…' from your Tailscale machines` (handover phase 2 only) | "When the Mac has shut down, open login.tailscale.com/admin/machines and remove it from your list." |
 
@@ -391,7 +399,9 @@ It prints one line per check:
 Go through every `fail`:
 - Use the fix the line gives, or explain it to the user if it's a click.
 - If the fix needs the admin password, ask the user to run it in Terminal.
-- Run `doctor` again until it's all `ok` (plus `info`).
+- Run `doctor` again until it's all `ok` (plus `info`), apart from the expected Full Disk Access line.
+
+**Expected on the first run:** `fail Full Disk Access is off for Terminal — … then restart Terminal`. The switch is on, but it only takes effect once Terminal restarts. Tell the user this fail is expected and will be fixed at the very end (see "Last: restart Terminal" below). Carry on with the rest first.
 
 > In Terminal mode, Claude's own shell has no saved admin password. If the only `fail` is `Remote Login (SSH) is off`, it may be a false alarm. Ask the user to run `sudo -v && mac-ai-server doctor` in Terminal to confirm.
 
@@ -399,6 +409,7 @@ Go through every `fail`:
 - `Remote Control: on.`: done.
 - `Remote Control (use Claude Code from your phone): one-time setup, run cd ~/projects && claude and accept the prompt.`: ask them to do exactly that in Terminal, then type `/exit`.
 - `Remote Control is waiting for one confirmation: run tmux attach -t main:remote and type y, then Ctrl-b d.`: ask them to do that.
+- `Remote Control: starting (check with tmux attach -t main:remote).`: wait a minute and run `ai-motd` again.
 
 **Then give short usage notes** (more in `docs/guide.md`):
 
@@ -411,12 +422,21 @@ Go through every `fail`:
 
 Open new Terminal windows for these, because the current one doesn't know the new commands yet.
 
-Finally, offer the quick helper model if the plan named one:
+Then offer the quick helper model if the plan named one:
 
 > "There's also a smaller, faster helper model (<tag>, <size> GB). Want it? It's useful for quick questions."
 
 If yes, run `~/mac-ai-server/mac-ai-server models add-fast`. It needs no admin password.
 
+**Last: restart Terminal for Full Disk Access.** Full Disk Access only takes effect after Terminal restarts, and Claude is running inside Terminal, so it can't restart it without ending this conversation. Do this last, after the usage notes:
+
+> "One last step. Full Disk Access only works after Terminal restarts, and that closes our chat, so here's how to come back:
+> 1. Quit Terminal: press **Cmd+Q**.
+> 2. Open Terminal again (Cmd+Space, type Terminal, Return).
+> 3. Type `cd ~ && claude --continue` and press Return. (If you first started me in another folder, `cd` there instead.) That reopens this conversation.
+> 4. Ask me: 'run mac-ai-server doctor again'."
+
+When they're back, run `doctor` again and confirm it's all `ok` (plus `info`).
 ---
 
 ## Later: commands you'll use

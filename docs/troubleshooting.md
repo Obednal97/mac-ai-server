@@ -11,7 +11,7 @@ If you want to report a problem, `mac-ai-server doctor --report` gives you the c
 | What you see | What it means | Fix |
 |---|---|---|
 | `This Mac isn't supported: it needs an Apple Silicon chip` | An Intel Mac | These models need Apple Silicon. |
-| `This is an M1 chip...` (or M2) | A warning: untested, may be slow | You can carry on. |
+| `This is an M1 chip...` (or M2) | M1 and M2 are warned, not blocked: untested, may be slow | You can carry on. |
 | `Disk space: Not enough.` | Not enough free space for the model and tools | Free up the amount shown. Or set `MAS_REMOVE_APPS=yes` (removes GarageBand, iMovie, Keynote, Numbers and Pages), or pick a smaller model. |
 | `This is a laptop. Set MAS_MODE=laptop-daily or MAS_MODE=laptop-server...` | The installer can't ask which MacBook mode you want | Add `MAS_MODE=laptop-daily` (or `laptop-server`) to `~/.mac-ai-server/config.env`. |
 | `Not running in a terminal. Add --yes...` | It was started without a keyboard prompt | Run it in Terminal, or add `--yes`. |
