@@ -19,7 +19,9 @@ _mas_pw_get() {
     printf "Login password for '%s' (to set up auto-login): " "$(_mas_pw_user)" >/dev/tty
     IFS= read -r -s pw </dev/tty
     printf '\n' >/dev/tty
-    # Verify through sudo's stdin (the password never appears in argv).
+  fi
+  # Verify every source through sudo's stdin (the password never appears in argv).
+  if [ -n "$pw" ]; then
     printf '%s\n' "$pw" | sudo -k -S -v >/dev/null 2>&1 || pw=""
   fi
   printf '%s' "$pw"
@@ -38,15 +40,17 @@ _mas_pw_autologin() {
     pw="$(_mas_pw_get)"
     if [ -n "$pw" ]; then
       sudo mkdir -p "$(dirname "$kc")"
-      PW="$pw" perl -e '
+      # umask 077: the file is created 0600 from the start (tee keeps an existing file's mode).
+      ( umask 077; PW="$pw" perl -e '
         my @k=(0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F);
         my @p=map ord, split //, $ENV{PW}; push @p,0; push @p,0 while @p % 12;
-        print map { chr($p[$_] ^ $k[$_ % 11]) } 0..$#p;' | sudo tee "$kc" >/dev/null
+        print map { chr($p[$_] ^ $k[$_ % 11]) } 0..$#p;' | sudo tee "$kc" >/dev/null )
       sudo chown root:wheel "$kc" && sudo chmod 600 "$kc"
       sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$user"
       echo "Auto-login enabled."
     else
-      mas_warn "No (valid) login password available. Enable auto-login later: System Settings > Users & Groups > Automatically log in as."
+      mas_warn "No valid login password available, so auto-login was not set up."
+      mas_action "Enable auto-login: Automatically log in as this user" "System Settings > Users & Groups"
     fi
     pw=""
   fi
@@ -97,6 +101,11 @@ mod_run() {
   esac
 }
 
+# _mas_pw_ac <key>: the value in the AC Power section of pmset -g custom.
+_mas_pw_ac() {
+  pmset -g custom 2>/dev/null | awk -v k="$1" '/^[A-Za-z].*:/{ac=($0 ~ /^AC Power/)} ac && $1==k{print $2; exit}'
+}
+
 # _mas_pw_val <key>: the value pmset -g reports for a setting.
 _mas_pw_val() { pmset -g 2>/dev/null | awk -v k="$1" '$1==k{print $2; exit}'; }
 
@@ -123,7 +132,7 @@ mod_check() {
     laptop-daily)
       v="$(_mas_pw_val SleepDisabled)"
       if [ -z "$v" ] || [ "$v" = 0 ]; then echo "ok lid-close sleep works normally"; else echo "fail sleep is disabled — run: sudo pmset -a disablesleep 0"; rc=1; fi
-      v="$(_mas_pw_val sleep)"
+      v="$(_mas_pw_ac sleep)"
       if [ "$v" = 0 ]; then echo "ok stays awake on the charger"; else echo "fail sleeps on the charger — run: sudo pmset -c sleep 0"; rc=1; fi
       ;;
   esac

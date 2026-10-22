@@ -5,7 +5,7 @@ if [ -n "${FAKE_LOG:-}" ]; then echo "$name $*" >> "$FAKE_LOG"; fi
 if [ "$name" = sudo ]; then
   while [ $# -gt 0 ]; do
     case "$1" in
-      -v) exit 0 ;;
+      -v) exit "${FAKE_SUDO_V_RC:-0}" ;;
       -n|-A|-S|-k) shift ;;
       -u) shift 2 ;;
       --) shift; break ;;

@@ -34,6 +34,11 @@ dec="$(perl -e 'my @k=(0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F); 
 assert_eq "$dec" "secret" "kcpassword decodes to the password"
 assert_eq "$(wc -c < "$MAS_SYSROOT/etc/kcpassword" | tr -d ' ')" 12 "kcpassword padded to 12"
 assert_logged '^chown root:wheel'
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/etc/kcpassword")" 600 "kcpassword mode is 600"
+# created 0600 from the start: the chmod afterwards must not be what sets it
+rm -f "$MAS_SYSROOT/etc/kcpassword"
+( umask 022; runfn mod_run MAS_MODE=desktop MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw" )
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/etc/kcpassword")" 600 "kcpassword 600 under umask 022"
 assert_not_logged 'pmset -g cap.*powermode'
 assert_not_logged 'powermode 2'
 assert_not_logged 'disablesleep'
@@ -52,6 +57,14 @@ FAKE_OUT_fdesetup="FileVault is On." runfn mod_run MAS_MODE=desktop MAS_SUDO=ask
 assert_ok "FileVault warning" has "FileVault"
 assert_not_logged 'defaults write .*autoLoginUser'
 assert_fails "no kcpassword with FileVault" test -e "$MAS_SYSROOT/etc/kcpassword"
+
+# wrong password: nothing written, ACTION NEEDED shown
+rm -f "$MAS_SYSROOT/etc/kcpassword"
+FAKE_SUDO_V_RC=1 runfn mod_run MAS_MODE=desktop MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
+assert_logged '^sudo -k -S -v'
+assert_fails "no kcpassword for a wrong password" test -e "$MAS_SYSROOT/etc/kcpassword"
+assert_not_logged 'defaults write .*autoLoginUser'
+assert_ok "wrong password gives ACTION NEEDED" has "ACTION NEEDED: Enable auto-login"
 
 # no password available and no terminal: warn, don't hang
 runfn mod_run MAS_MODE=desktop MAS_SUDO=terminal MAS_NO_TTY=1 < /dev/null
@@ -101,5 +114,11 @@ FAKE_OUT_pmset=$' sleep 0' runfn mod_check MAS_MODE=laptop-server
 assert_eq "$?" 1 "server check fails without SleepDisabled"
 FAKE_OUT_pmset=$' sleep 1' runfn mod_check MAS_MODE=laptop-daily
 assert_eq "$?" 1 "daily check fails with sleep on AC not 0"
+
+AC_ON_BATT=$'AC Power:\n sleep 0\n displaysleep 10\nBattery Power:\n sleep 15\n displaysleep 5'
+FAKE_OUT_pmset="$AC_ON_BATT" runfn mod_check MAS_MODE=laptop-daily
+assert_eq "$?" 0 "daily check reads the AC section, not the active source"
+FAKE_OUT_pmset=$'Battery Power:\n sleep 0\nAC Power:\n sleep 10' runfn mod_check MAS_MODE=laptop-daily
+assert_eq "$?" 1 "daily check fails when AC sleep is not 0"
 
 t_summary
