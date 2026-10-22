@@ -12,7 +12,7 @@ done
 MAS_ROOT="$(cd "$(dirname "$_src")" && pwd)"
 unset _src _dir
 
-PATH="$PATH:/opt/homebrew/bin"; export PATH   # appended, so a user's own tools win
+PATH="$PATH:${MAS_BREW_PREFIX:-/opt/homebrew}/bin"; export PATH   # appended, so a user's own tools win
 
 # Same config order as install.sh: defaults, then the user's file; anything already in the environment wins.
 _mas_env="$(export -p | grep '^declare -x MAS_')"

@@ -12,7 +12,10 @@ t_setup() {
   mkdir -p "$HOME"
   export FAKE_LOG="$T_TMP/fake.log"
   : > "$FAKE_LOG"
-  export PATH="$TESTS_DIR/fakes:$PATH"
+  # Only the fakes and the OS's own directories: never /opt/homebrew, /usr/local or ~/.local/bin,
+  # so anything that isn't faked can't run a real Homebrew/npm/uv binary.
+  export PATH="$TESTS_DIR/fakes:/usr/bin:/bin:/usr/sbin:/sbin"
+  export MAS_BREW_PREFIX="$T_TMP/brew-prefix"
 }
 
 t_teardown() { [ -n "${T_TMP:-}" ] && rm -rf "$T_TMP"; }
