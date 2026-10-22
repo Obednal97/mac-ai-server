@@ -1,0 +1,3 @@
+#!/bin/bash
+# Runs the privacy scan (including the private blocklist, if present) before every push.
+exec bash "$(git rev-parse --show-toplevel)/tests/privacy-scan.sh"

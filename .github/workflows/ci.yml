@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: brew install shellcheck
+      - name: shellcheck
+        run: |
+          files=$(git ls-files '*.sh')
+          for f in bin/* handover/* mac-ai-server; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          # shellcheck disable=SC2086
+          shellcheck -x --severity=warning $files
+      - name: Shell tests
+        run: bash tests/run.sh
+      - name: Python tests
+        run: |
+          if ls tests/test_*.py >/dev/null 2>&1; then
+            /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py'
+          else
+            echo "no python tests"
+          fi
+      - name: Model tags exist in the registry
+        run: |
+          if out=$(bash tests/check-model-tags.sh 2>&1); then
+            echo "$out"
+          else
+            echo "$out"
+            # Hard-fail on a real 404 or a tag missing from the catalogue; soft-pass if the registry was unreachable (000).
+            if echo "$out" | grep -E '^NOT IN CATALOG|^[0-9]{3}  ' | grep -vE '^(200|000)  '; then
+              exit 1
+            fi
+            echo "registry unreachable; skipping"
+          fi
+      - name: Privacy scan (generic patterns)
+        run: bash tests/privacy-scan.sh --generic
