@@ -14,6 +14,8 @@ cp -R "$TESTS_DIR/fakes" "$NOCLAUDE"; rm -f "$NOCLAUDE/claude"
 SAFE_PATH="$NOCLAUDE:/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH="$SAFE_PATH"
 export MAS_BREW_PREFIX="$T_TMP/nobrew"
+export MAS_SYSROOT="$T_TMP/root"   # the shared /usr/local/bin copies go here, never the real one
+SYSBIN="$MAS_SYSROOT/usr/local/bin"
 
 runfn() {  # runfn <function> [VAR=value ...]
   local fn="$1"; shift
@@ -152,6 +154,35 @@ runfn mod_run "${PLAN[@]}"
 echo '# x' > "$HOME/.zprofile"
 runfn mod_check "${PLAN[@]}"
 assert_eq "$?" 1 "check fails without zprofile block"
+
+# --- multi-user: shared claude-local and chat, kept in step with the owner's, removed when turned off
+runfn mod_run "${PLAN[@]}"
+assert_fails "no shared copies by default" test -e "$SYSBIN/claude-local"
+runfn mod_run "${PLAN[@]}" MAS_MULTIUSER=yes
+assert_ok "shared claude-local" cmp -s "$BIN/claude-local" "$SYSBIN/claude-local"
+assert_ok "shared chat" cmp -s "$BIN/chat" "$SYSBIN/chat"
+assert_eq "$(stat -f %Lp "$SYSBIN/claude-local")" 755 "shared copy is 755"
+runfn mod_check "${PLAN[@]}" MAS_MULTIUSER=yes FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 0 "check ok with shared copies"
+runfn mod_run MAS_PRIMARY=other:7b MAS_CONTEXT=32768 MAS_MULTIUSER=yes
+assert_ok "shared copy follows a model change" grep -qF 'CLAUDE_LOCAL_MODEL:-other:7b' "$SYSBIN/claude-local"
+echo stale > "$SYSBIN/chat"
+runfn mod_check MAS_PRIMARY=other:7b MAS_CONTEXT=32768 MAS_MULTIUSER=yes
+assert_eq "$?" 1 "check fails on a stale shared copy"
+assert_ok "stale shared copy fix" has "fail The shared chat .* — run: mac-ai-server install --only claude"
+runfn mod_run "${PLAN[@]}" MAS_MULTIUSER=no
+assert_fails "shared claude-local removed when turned off" test -e "$SYSBIN/claude-local"
+assert_ok "a file that isn't ours is left alone" test -e "$SYSBIN/chat"
+rm -f "$SYSBIN/chat"
+# claude-local never uses a setup-token login; the shell profile loads one only when the file exists
+assert_ok "claude-local drops the token" grep -qx 'unset CLAUDE_CODE_OAUTH_TOKEN.*' "$BIN/claude-local"
+assert_eq "$(grep -c 'mac-ai-server/claude-token' "$HOME/.zshrc")" 1 "token line added once"
+# a setup-token file counts as logged in
+rm -f "$HOME/.claude/.credentials.json"; mkdir -p "$HOME/.mac-ai-server"; echo tok > "$HOME/.mac-ai-server/claude-token"
+runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 0 "setup-token counts as logged in"
+rm -f "$HOME/.mac-ai-server/claude-token"; echo '{}' > "$HOME/.claude/.credentials.json"
+
 rm -f "$BIN/claude"
 runfn mod_check "${PLAN[@]}"
 assert_eq "$?" 1 "check fails without claude"

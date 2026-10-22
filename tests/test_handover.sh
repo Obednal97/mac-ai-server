@@ -7,6 +7,7 @@
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 t_setup
+export HANDOVER_WATCHDOG=0   # no background shutdown timer in tests
 trap t_teardown EXIT
 
 PH="$REPO_DIR/handover/prepare-handover.sh"
@@ -51,6 +52,7 @@ case "$2" in
            NFSHomeDirectory) echo "NFSHomeDirectory: ${FAKE_DSCL_HOME:-$HOME}" ;;
            RealName) echo "RealName: Test Owner" ;;
          esac ;;
+  -list) [ -n "${FAKE_DSCL_USERS:-}" ] && printf '%s\n' "$FAKE_DSCL_USERS" ;;   # "name uid" lines
   *) exit 0 ;;
 esac
 EOF
@@ -511,5 +513,64 @@ assert_eq "$(cat "$PW_STATE")" "owner-pass-1" "local mode without a keyboard cha
 assert_fails "install.sh mentions no hotspot" grep -qi hotspot "$REPO_DIR/install.sh"
 # no personal data in the handover files
 assert_fails "no personal paths or addresses" grep -nE '/Users/admin|@[a-z0-9-]+\.(com|net)|192\.168\.|claude\.ai/' "$PH" "$FRS"
+
+
+# ================================================================ Joel's report: robustness fixes
+# phase 1 cut off right after the password change: the first-run assistant is armed anyway
+fresh
+CUT="$T_TMP/cut"; mkdir -p "$CUT"
+printf '#!/bin/bash\n[ "${1:-}" = -i ] && kill -KILL "$PPID"\nexec "$W/security" "$@"\n' > "$CUT/security"; chmod +x "$CUT/security"
+mkdir -p "$HOME/.first-run"; touch "$HOME/.first-run/done-password" "$HOME/.first-run/done-name"   # an earlier handover's
+( PATH="$CUT:$PATH" HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1 ) 2>/dev/null
+assert_ok "cut-off phase 1 still armed the assistant" test -f "$HOME/.first-run/pending"
+assert_fails "with no finished steps left over" test -e "$HOME/.first-run/done-password"
+assert_ok "and its login hook" grep -q 'first-run-setup' "$HOME/.zprofile"
+rm -rf "$CUT"
+# phase 1: auto-login goes straight to the desktop (a lock screen leaves the keychain locked)
+fresh
+HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+assert_logged '^defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false'
+# phase 1 names other people's accounts (the handover only clears the owner's)
+fresh
+FAKE_DSCL_USERS=$'root 0\n'"$ME 501"$'\nsam 502' HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+out_has "Other accounts on this Mac: sam." "other accounts named"
+# phase 2: a stuck Tailscale logout times out, the wipe finishes and the Mac still shuts down
+fresh
+H="$HOME"; mkdir -p "$H/.mac-ai-server" "$MAS_SYSROOT/usr/local/libexec/ai-handover"; echo tok > "$H/.mac-ai-server/claude-token"
+SH_DROP="$MAS_SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
+SH_MKT="$MAS_SYSROOT/Library/Application Support/mac-ai-server/shared-claude"
+mkdir -p "$(dirname "$SH_DROP")" "$SH_MKT/x" "$MAS_SYSROOT/usr/local/bin"; echo '{}' > "$SH_DROP"
+touch "$MAS_SYSROOT/usr/local/bin/claude-local" "$MAS_SYSROOT/usr/local/bin/chat" "$MAS_SYSROOT/etc/sudoers.d/90-$ME-nopasswd"
+HANG="$T_TMP/hang"; mkdir -p "$HANG"
+printf '#!/bin/bash\necho "tailscale $*" >> "$FAKE_LOG"\n[ "${1:-}" = logout ] && sleep 30\nexit 0\n' > "$HANG/tailscale"; chmod +x "$HANG/tailscale"
+PATH="$HANG:$PATH" HANDOVER_TIMEOUT=2 FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
+assert_eq "$(tail -1 "$FAKE_LOG")" "shutdown -h now" "shutdown still happens after a stuck step"
+out_has "timed out after 2s" "the stuck step is logged"
+assert_ok "setup-token login wiped" test ! -e "$H/.mac-ai-server/claude-token"
+assert_ok "shared plugins and skills wiped" test ! -e "$SH_DROP" -a ! -e "$SH_MKT"
+assert_ok "shared launchers wiped" test ! -e "$MAS_SYSROOT/usr/local/bin/claude-local" -a ! -e "$MAS_SYSROOT/usr/local/bin/chat"
+n_sud="$(grep -n 'rm -f .*sudoers.d/.*-nopasswd' "$OUT" | head -1 | cut -d: -f1)"; n_wipe="$(grep -n -- "-- removing the owner's data" "$OUT" | head -1 | cut -d: -f1)"
+assert_ok "password-free sudo removed before the data wipe" test "${n_sud:-99}" -lt "${n_wipe:-0}"
+rm -rf "$HANG"
+
+# ================================================================ first-run: other people (step 6)
+MASF="$T_TMP/masf"
+printf '#!/bin/bash\necho "mac-ai-server $*" >> "$FAKE_LOG"\n' > "$MASF"; chmod +x "$MASF"
+frs6() {  # frs6 <stdin>: only the users step left, a fake mac-ai-server installed
+  fresh; frs_state done-password; mkdir -p "$HOME/.local/bin"; cp "$MASF" "$HOME/.local/bin/mac-ai-server"
+  frs "$1"
+}
+frs6 "\n3\n"
+assert_not_logged '^mac-ai-server'
+assert_ok "users step done" test -f "$HOME/.first-run/done-users"
+assert_ok "setup finished after step 6" test ! -e "$HOME/.first-run/pending"
+frs6 "\n2\n"
+assert_logged '^mac-ai-server install --yes --only claude,multiuser'
+assert_not_logged 'users add'
+assert_ok "multi-user saved in the config" grep -qx 'MAS_MULTIUSER=yes' "$HOME/.mac-ai-server/config.env"
+frs6 "\n1\nsam\nkim\n\n"
+assert_logged '^mac-ai-server users add sam'
+assert_logged '^mac-ai-server users add kim'
+out_has "Step 6 of 6" "step header"
 
 t_summary

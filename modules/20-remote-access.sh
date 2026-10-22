@@ -48,6 +48,16 @@ _mas_ra_bad() {
 
 mod_applies() { return 0; }
 
+# Screen Sharing: the service can be on while nobody may connect. macOS limits it to the members of
+# com.apple.access_screensharing when that group exists (it can be left empty), and refuses everyone else.
+_mas_ra_ss_group() { printf '%s' com.apple.access_screensharing; }
+_mas_ra_ss_user() { printf '%s' "${MAS_USER:-$(id -un)}"; }
+_mas_ra_ss_allowed() {  # _mas_ra_ss_allowed <user>: no access group (everyone may), or a member of it
+  dscl . -read "/Groups/$(_mas_ra_ss_group)" >/dev/null 2>&1 || return 0
+  dseditgroup -o checkmember -m "$1" "$(_mas_ra_ss_group)" >/dev/null 2>&1
+}
+_mas_ra_ss_listening() { nc -z -G 2 127.0.0.1 5900 >/dev/null 2>&1; }
+
 # _mas_ra_ssh_on: Remote Login is on. Needs neither sudo nor Full Disk Access (systemsetup needs
 # both): sshd is loaded in launchd and not disabled, or something answers on port 22.
 _mas_ra_ssh_on() {
@@ -104,6 +114,16 @@ mod_run() {
   [ -z "$bad" ] || mas_warn "Another file in $(_mas_ra_dir) overrides the SSH settings (sshd uses the first value it reads): $(printf '%s' "$bad" | tr '\n' ';')"
   sudo launchctl enable system/com.apple.screensharing
   sudo launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
+  local ssu; ssu="$(_mas_ra_ss_user)"
+  if ! _mas_ra_ss_allowed "$ssu"; then
+    sudo dseditgroup -o edit -a "$ssu" -t user "$(_mas_ra_ss_group)" && echo "Screen Sharing: $ssu may connect."
+  fi
+  local i=0
+  while ! _mas_ra_ss_listening && [ "$i" -lt "${MAS_SS_WAIT:-5}" ]; do sleep 1; i=$((i + 1)); done   # it may still be starting
+  if ! _mas_ra_ss_listening; then
+    mas_warn "Screen Sharing isn't answering yet. macOS 26 and 27 may only let it be switched on at the Mac itself."
+    mas_action "Turn on Screen Sharing (with a keyboard and screen at the Mac, or from a Screen Sharing session)" "System Settings > General > Sharing > Screen Sharing"
+  fi
   sudo "$fw" --setglobalstate on >/dev/null
   sudo "$fw" --setallowsigned on >/dev/null
   sudo "$fw" --setallowsignedapp on >/dev/null
@@ -134,8 +154,12 @@ mod_check() {
     done
     rc=1
   fi
-  if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then echo "ok Screen Sharing is on"
-  else echo "fail Screen Sharing is off — run: sudo launchctl enable system/com.apple.screensharing"; rc=1; fi
+  local ssu; ssu="$(_mas_ra_ss_user)"
+  if ! launchctl print system/com.apple.screensharing >/dev/null 2>&1 || ! _mas_ra_ss_listening; then
+    echo "fail Screen Sharing is off — turn it on at the Mac: System Settings > General > Sharing > Screen Sharing (or run: sudo launchctl enable system/com.apple.screensharing)"; rc=1
+  elif ! _mas_ra_ss_allowed "$ssu"; then
+    echo "fail Screen Sharing is on but $ssu isn't allowed to connect — run: sudo dseditgroup -o edit -a $ssu -t user $(_mas_ra_ss_group)"; rc=1
+  else echo "ok Screen Sharing is on and $ssu may connect"; fi
   if "$fw" --getglobalstate 2>/dev/null | grep -qi "enabled"; then echo "ok firewall is on"
   else echo "fail firewall is off — run: sudo $fw --setglobalstate on"; rc=1; fi
   return "$rc"

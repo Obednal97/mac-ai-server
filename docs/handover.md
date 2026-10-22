@@ -84,10 +84,11 @@ Use this when your only way in is a Claude Code session on the Mac itself. That 
 
 Phase 1 runs inside your live session and doesn't cut it off:
 - **Temporary password.** It checks your current password, then sets a random temporary one (e.g. `mini-abcd-efgh-jkmn`).
-- **Auto-login and keychain.** It updates auto-login to match straight away, and re-locks the login keychain with the same password, so Claude Code keeps working even if the Mac restarts before phase 2.
+- **Auto-login and keychain.** It updates auto-login to match straight away, and re-locks the login keychain with the same password, so Claude Code keeps working even if the Mac restarts before phase 2. Auto-login goes straight to the desktop, not the lock screen, which would leave the keychain locked.
 - **Restart and SSH.** It turns on restart after a power failure, and allows SSH logins with a password again.
 - **Wi-Fi.** It pre-loads the new owner's Wi-Fi as the first network to join. Your current network stays for now, so the session isn't affected; phase 2 deletes it. If that network is already saved and you give no password, it's left as it is.
-- **The assistant.** It arms the first-run assistant and puts **Start Here** on the desktop.
+- **The assistant.** It arms the first-run assistant right after the password change, so phase 2 can still run and the new owner still gets the guided setup if phase 1 is cut off after that. It also puts **Start Here** on the desktop.
+- **Other accounts.** If other people have accounts on the Mac ([multi-user.md](multi-user.md)), it names them. The handover clears only your account, so remove theirs first if they shouldn't stay (`mac-ai-server users remove <name>`).
 - **The card.** It prints the card and saves it to `/var/tmp/ai-handover/card.txt`, readable only by you. Send it to the new owner privately.
 
 Running phase 1 again is safe. It keeps the first temporary password; add `--force` for a new one.
@@ -102,6 +103,8 @@ Phase 2 installs a **one-shot system service** (a root LaunchDaemon), starts it 
 4. It logs out of Tailscale and removes passwordless admin.
 5. It deletes the saved Wi-Fi networks (except the new owner's).
 6. It deletes itself and **shuts the Mac down**.
+
+Steps that wait on something outside the service have time limits: the Tailscale logout (60 seconds; it can hang with no network), stopping tmux and deleting the keychain (20 seconds each). A timed-out step is logged and the rest carries on. As a last resort, the Mac shuts down 15 minutes after the wipe starts (`HANDOVER_WATCHDOG`, in seconds), whatever happens.
 
 Before the 45 seconds start, the launcher also empties `~/Downloads`, `~/.Trash`, `~/Documents` and the Desktop and deletes the browser data from your own session, because macOS can block the root service from them.
 
@@ -161,15 +164,16 @@ The card uses the Mac's own model name ("Mac mini", "Mac Studio", "MacBook Pro"â
 
 ## The first-run assistant
 
-The assistant starts at the new owner's first login, over SSH or with Start Here, and walks through five steps:
+The assistant starts at the new owner's first login, over SSH or with Start Here, and walks through six steps:
 
 1. **New password.** It replaces the temporary one, and also updates auto-login and the keychain.
 2. **Their name** on the account.
 3. **Machine name, plus fresh security keys** for SSH, so the previous owner's keys can't impersonate the Mac. The new owner's computer will warn that the "host identification has changed". The assistant explains the one command that fixes it.
 4. **Their own Tailscale**, with a reminder to disable key expiry.
 5. **An SSH key** (optional), with an option to switch off password logins.
+6. **Other people** (optional): "Will anyone else use this Mac?" *Add someone now* turns on multi-user mode and runs `mac-ai-server users add` for each name. *Maybe later* only turns on the mode. *No* changes nothing. See [multi-user.md](multi-user.md).
 
-Interruptions are safe: Ctrl-C, a dropped connection or a power cut. Finished steps are remembered, and it resumes at the next login. Run `first-run-setup` to resume by hand, or `first-run-setup --redo <step>` to repeat one. The steps are `password`, `name`, `hostkeys`, `tailscale` and `sshkey`. If the password changed but the rest of the step didn't finish, it asks once more for the new password and finishes the job.
+Interruptions are safe: Ctrl-C, a dropped connection or a power cut. Finished steps are remembered, and it resumes at the next login. Run `first-run-setup` to resume by hand, or `first-run-setup --redo <step>` to repeat one. The steps are `password`, `name`, `hostkeys`, `tailscale`, `sshkey` and `users`. If the password changed but the rest of the step didn't finish, it asks once more for the new password and finishes the job.
 
 It ends on the welcome screen and leaves a quick reference in `~/WELCOME.txt`.
 

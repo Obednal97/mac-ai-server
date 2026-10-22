@@ -54,6 +54,14 @@ _mas_pw_autologin() {
     fi
     pw=""
   fi
+  _mas_pw_unlocked_login
+}
+
+# Without this, auto-login can stop at the lock screen: the login keychain then stays locked and
+# Claude Code reports "not logged in" over SSH until someone unlocks the screen. Only when auto-login is on.
+_mas_pw_unlocked_login() {
+  [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ] || return 0
+  sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
 }
 
 # Desktop only: no screensaver and no screensaver password (a laptop keeps its screen lock).
@@ -66,7 +74,12 @@ _mas_pw_check_autologin() {
   if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
     echo "ok auto-login skipped (FileVault is on)"
   elif [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(_mas_pw_user)" ]; then
-    echo "ok auto-login enabled"
+    case "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked 2>/dev/null)" in
+      1|true|YES)
+        echo "fail auto-login stops at the lock screen (so the keychain stays locked) — run: sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false"
+        return 1 ;;
+    esac
+    echo "ok auto-login enabled (straight to the desktop)"
   else
     echo "fail auto-login is off — fix: System Settings > Users & Groups > Automatically log in as"; return 1
   fi

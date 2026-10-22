@@ -121,7 +121,7 @@ Also cover the download size and the time:
 
 ## Step 4: ask the questions
 
-Ask these one at a time. Each one has a default; if the user says "just use the defaults", use them all. Write the answers to `~/.mac-ai-server/config.env` (see 4l).
+Ask these one at a time. Each one has a default; if the user says "just use the defaults", use them all. Write the answers to `~/.mac-ai-server/config.env` (see 4m).
 
 ### 4a. AI model (default: the recommendation)
 
@@ -236,7 +236,15 @@ To turn it off later: set `MAS_AGENT_MODE=no` in `config.env` and run `mac-ai-se
 - Save `MAS_HANDOVER=no` or `yes`.
 - If yes, point them to `docs/handover.md` for later. Don't run anything for it now.
 
-### 4j. "About me" memory starter (optional; default: skip)
+### 4j. Other people (default: no)
+
+> "Will **other people** use this Mac, now or maybe later? For example family, friends or a team. Each person gets their own account, with their own files, Claude login and memory. You can't see theirs and they can't see yours. Everyone shares the AI models, so nothing is downloaded twice, and your Claude Code plugins and personal skills are shared too. (MCP servers you added yourself, like ones that need a login, are not shared.)"
+
+- Save `MAS_MULTIUSER=yes` for "yes" or "maybe later", otherwise `MAS_MULTIUSER=no`.
+- Yes makes their home folder private (macOS normally lets every account look inside it) and shares `claude-local`, `chat`, plugins and skills with every account. It doesn't create any accounts.
+- Tell them that after the install they add a person with `mac-ai-server users add <name>` (they choose a temporary password, and the person picks their own at first login). `docs/multi-user.md` has the details.
+
+### 4k. "About me" memory starter (optional; default: skip)
 
 > "Optional: Claude Code can remember a few things about you in every project, with both `claude` and `claude-local`. Would you like to tell me your name, what you mostly do (e.g. 'I build websites', 'I'm learning Python') and how you like answers (short, detailed, with examples)? Or skip it."
 
@@ -254,7 +262,7 @@ If they answer:
 
 This is local memory. See `docs/memory.md`. It's separate from the Claude app's memory.
 
-### 4k. Admin rights (default: Terminal)
+### 4l. Admin rights (default: Terminal)
 
 > "The install needs your Mac's admin password, the one you log in with. Two ways:
 > 1. **You type it yourself** (recommended). I'll give you one command to paste into Terminal, and you type the password there. I never see it.
@@ -270,7 +278,7 @@ If they pick option 2, give this warning **before** they type anything:
 
 Don't save this choice in `config.env`. Option 2 is passed for a single run only (see step 5B). Saving `MAS_SUDO=askpass` would make every later update expect a password file.
 
-### 4l. Write the config
+### 4m. Write the config
 
 **If `~/.mac-ai-server/config.env` already exists** (an earlier install), read it first. For each value in it, keep it or ask the user about it, and tell them what was there. Never overwrite the file blindly; change only the lines that need changing.
 
@@ -290,6 +298,7 @@ MAS_STATUSLINE=yes
 MAS_DEV_TOOLS="node pnpm uv git gh jq ripgrep"
 MAS_AGENT_MODE=no
 MAS_HANDOVER=no
+MAS_MULTIUSER=no
 ```
 
 Add `MAS_MODE=laptop-daily` or `MAS_MODE=laptop-server` on a MacBook, and `MAS_MODEL=<tag>` only if they picked a non-recommended model. Quote values that contain spaces.
@@ -333,7 +342,7 @@ Then follow the log, as described in step 6.
 
 ### 5B. Opt-in: Claude runs it with the password
 
-Only after the warning in 4k, and only if they typed the password in this conversation:
+Only after the warning in 4l, and only if they typed the password in this conversation:
 
 1. **Make a private folder** and remember the printed path:
 

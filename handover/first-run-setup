@@ -4,14 +4,14 @@
 # Starts automatically on login while ~/.first-run/pending exists. Finished steps are
 # remembered in ~/.first-run, so stopping part-way is safe: the next run resumes.
 #   first-run-setup                 run (or resume) setup
-#   first-run-setup --redo <step>   run one step again: password | name | hostkeys | tailscale | sshkey
+#   first-run-setup --redo <step>   run one step again: password | name | hostkeys | tailscale | sshkey | users
 # DRY_RUN=1 prints system-changing commands instead of running them.
 # Tests only: MAS_SYSROOT=<dir> prefixes the system paths it writes (/etc/...).
 set -uo pipefail
 
 STATE="$HOME/.first-run"
 DRY_RUN="${DRY_RUN:-0}"
-STEPS="password name hostkeys tailscale sshkey"
+STEPS="password name hostkeys tailscale sshkey users"
 SYSROOT="${MAS_SYSROOT:-}"
 KCPASSWORD="$SYSROOT/etc/kcpassword"
 # Append, so the caller's PATH (and the fakes in tests) come first
@@ -113,6 +113,7 @@ This assistant takes about 5 minutes. It will:
   3. Name the machine and give it fresh security keys
   4. Connect it to ${b}your${rst} Tailscale account so you can reach it from anywhere
   5. Optionally add your SSH key for password-free login
+  6. Ask whether other people will use this Mac too
 
 You can stop at any time with Ctrl-C. Finished steps are remembered,
 and the assistant starts again the next time you log in.
@@ -123,7 +124,7 @@ fi
 
 # ---------------------------------------------------------------- 1. password
 if ! is_done password; then
-  head1 "Step 1 of 5 · New password"
+  head1 "Step 1 of 6 · New password"
   if [ -f "$STATE/password-changed" ]; then
     # Interrupted after the password changed but before the keychain or auto-login was updated
     say "Your password was already changed. Enter it once more to finish this step."
@@ -198,7 +199,7 @@ sudo_ok || { err "Admin access failed. Run first-run-setup to try again."; exit 
 
 # ---------------------------------------------------------------- 2. display name
 if ! is_done name; then
-  head1 "Step 2 of 5 · Your name"
+  head1 "Step 2 of 6 · Your name"
   # dscl prints "RealName: x", or "RealName:" then " x" on the next line when the name has spaces
   CURRENT="$(dscl . -read "/Users/$USER" RealName 2>/dev/null | sed '1s/^RealName://' | tr -d '\n' | sed 's/^ *//')"
   say "This name appears on the login screen and in System Settings."
@@ -214,7 +215,7 @@ fi
 # ---------------------------------------------------------------- 3. machine name + host keys
 OLDNAME="$(scutil --get LocalHostName)"
 if ! is_done hostkeys; then
-  head1 "Step 3 of 5 · Machine name and security keys"
+  head1 "Step 3 of 6 · Machine name and security keys"
   read -r -p "Machine name, used to connect to it [$OLDNAME]: " NAME
   NAME="$(printf '%s' "${NAME:-$OLDNAME}" | tr '[:upper:] _' '[:lower:]--' | tr -cd 'a-z0-9-' | sed 's/^-*//; s/-*$//' | cut -c1-63)"
   if [ -n "$NAME" ] && [ "$NAME" != "$OLDNAME" ]; then
@@ -249,7 +250,7 @@ fi
 
 # ---------------------------------------------------------------- 4. tailscale
 if ! is_done tailscale; then
-  head1 "Step 4 of 5 · Tailscale (access from anywhere)"
+  head1 "Step 4 of 6 · Tailscale (access from anywhere)"
   if [[ "${SSH_CONNECTION:-}" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
     warn "You're connected through Tailscale right now. Redoing this step drops that connection."
     say  "Connect over your home network (ssh $USER@$NAME.local) and run:  first-run-setup --redo tailscale"
@@ -287,7 +288,7 @@ fi
 
 # ---------------------------------------------------------------- 5. ssh key
 if ! is_done sshkey; then
-  head1 "Step 5 of 5 · SSH key (optional, recommended)"
+  head1 "Step 5 of 6 · SSH key (optional, recommended)"
   say "With an SSH key you can log in without typing a password, and password logins"
   say "can be switched off entirely, which is much safer."
   say "On your computer, print your public key with:  ${b}cat ~/.ssh/id_ed25519.pub${rst}"
@@ -318,6 +319,46 @@ if ! is_done sshkey; then
     say  "Add one later with: first-run-setup --redo sshkey"
   fi
   mark sshkey
+fi
+
+# ---------------------------------------------------------------- 6. other people
+if ! is_done users; then
+  head1 "Step 6 of 6 · Other people (optional)"
+  say "Other people can have their own accounts on this Mac: their own files, Claude login and"
+  say "memory, which you can't see and they can't see yours. Everyone shares the AI models,"
+  say "so nothing is downloaded twice."
+  say
+  say "  1. Yes, add someone now"
+  say "  2. Maybe later: get the Mac ready (makes your files private, shares the models and plugins)"
+  say "  3. No, just me"
+  read -r -p "Choose 1, 2 or 3 [3]: " U_CHOICE || U_CHOICE=3
+  MAS_CMD="$HOME/.local/bin/mac-ai-server"
+  case "${U_CHOICE:-3}" in
+    1|2)
+      if [ ! -x "$MAS_CMD" ]; then
+        warn "The mac-ai-server command isn't installed, so this step can't be done here."
+        say  "Ask whoever set up the Mac, then run: first-run-setup --redo users"
+      else
+        CONF="$HOME/.mac-ai-server/config.env"
+        if [ "$DRY_RUN" = 1 ]; then run set MAS_MULTIUSER=yes in "$CONF"
+        else
+          mkdir -p "$(dirname "$CONF")" && touch "$CONF" &&
+            { grep -v '^MAS_MULTIUSER=' "$CONF"; echo MAS_MULTIUSER=yes; } > "$CONF.new" && mv "$CONF.new" "$CONF"
+        fi
+        run "$MAS_CMD" install --yes --only claude,multiuser && ok "Multi-user mode is on." ||
+          warn "Multi-user setup didn't finish. Try again later with: mac-ai-server install --only claude,multiuser"
+        if [ "$U_CHOICE" = 1 ]; then
+          while true; do
+            read -r -p "Their account name, like sam (Enter when done): " U_NAME || break
+            [ -n "$U_NAME" ] || break
+            run "$MAS_CMD" users add "$U_NAME" || warn "Couldn't add $U_NAME."
+          done
+        fi
+        say "Add someone any time with: ${b}mac-ai-server users add <name>${rst}"
+      fi ;;
+    *) say "Just you. If that changes: ${b}mac-ai-server users add <name>${rst}" ;;
+  esac
+  mark users
 fi
 
 # ---------------------------------------------------------------- finish
@@ -354,7 +395,8 @@ MLX (Apple's ML framework):
 The machine:
   • Starts up by itself when power returns, and logs itself in
   • Never sleeps; installs security updates automatically
-  • Change a setup step later:  first-run-setup --redo password|name|hostkeys|tailscale|sshkey
+  • Other people can have their own accounts, sharing the models:  mac-ai-server users add <name>
+  • Change a setup step later:  first-run-setup --redo password|name|hostkeys|tailscale|sshkey|users
 
 Keep in mind:
   • Forgot your password? Nobody can reset it remotely. With a monitor and keyboard,

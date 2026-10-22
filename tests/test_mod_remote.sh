@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 t_setup
 trap t_teardown EXIT
-export MAS_SYSROOT="$T_TMP/root" MAS_FW=socketfilterfw MAS_TS_SETTLE=0 MAS_TS_WAIT=3 MAS_TS_POLL=1 MAS_BREW_PREFIX="$T_TMP/nobrew"
+export MAS_SS_WAIT=0 MAS_SYSROOT="$T_TMP/root" MAS_FW=socketfilterfw MAS_TS_SETTLE=0 MAS_TS_WAIT=3 MAS_TS_POLL=1 MAS_BREW_PREFIX="$T_TMP/nobrew"
 mkdir -p "$MAS_SYSROOT/etc"
 REMOTE="$REPO_DIR/modules/20-remote-access.sh"
 TS="$REPO_DIR/modules/35-tailscale.sh"
@@ -49,9 +49,10 @@ assert_eq "$(stat -f %m "$conf")" "$before" "drop-in untouched when identical"
 
 # checks
 runfn "$REMOTE" mod_applies; assert_eq "$?" 0 "remote applies"
-FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
+FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 FAKE_NC_5900_RC=0 \
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 0 "remote check passes"
+assert_ok "screen sharing ok names the user" has "ok Screen Sharing is on and .* may connect"
 FAKE_OUT_scutil="other" FAKE_OUT_systemsetup="Remote Login: Off" \
   FAKE_OUT_socketfilterfw="Firewall is disabled. (State = 0)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "remote check fails"
@@ -62,6 +63,23 @@ rm -rf "$MAS_SYSROOT/etc/ssh"
 FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "check fails when drop-in missing"
+
+# --- Screen Sharing access (service on, but the access group can be empty: every connection refused)
+runfn "$REMOTE" mod_run MAS_USER=owner FAKE_GROUP_MEMBER_RC=67 FAKE_NC_5900_RC=0
+assert_logged '^sudo dseditgroup -o edit -a owner -t user com.apple.access_screensharing'
+assert_ok "says the owner may connect" has "Screen Sharing: owner may connect"
+assert_fails "no Screen Sharing action when it answers" has "ACTION NEEDED: Turn on Screen Sharing"
+runfn "$REMOTE" mod_run MAS_USER=owner FAKE_NC_5900_RC=0
+assert_not_logged 'dseditgroup -o edit'
+# not answering on 5900: macOS may need it switched on at the Mac
+runfn "$REMOTE" mod_run MAS_USER=owner FAKE_NC_5900_RC=1
+assert_ok "Screen Sharing action when not answering" has "ACTION NEEDED: Turn on Screen Sharing .*| System Settings > General > Sharing > Screen Sharing"
+ss_check() { FAKE_OUT_scutil="my-ai-mac" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac" MAS_USER=owner "$@"; }
+ss_check FAKE_NC_5900_RC=0 FAKE_GROUP_MEMBER_RC=67
+assert_ok "check fails when the owner may not connect" has "^fail Screen Sharing is on but owner isn't allowed"
+assert_ok "and names the fix" has "dseditgroup -o edit -a owner -t user com.apple.access_screensharing"
+ss_check FAKE_NC_5900_RC=1
+assert_ok "check fails when the service is loaded but not answering" has "^fail Screen Sharing is off"
 
 # --- SSH on a fresh Mac without Full Disk Access (I7)
 # primary: launchctl enable + bootstrap (no FDA needed); systemsetup only when that didn't work
@@ -97,7 +115,7 @@ assert_ok "ssh fail when loaded but disabled" has "^fail Remote Login (SSH) is o
 rm -rf "$MAS_SYSROOT/etc/ssh"   # back to the state the next section expects
 
 # Effective settings, sshd-style: files in sshd_config.d in name order, first value wins.
-RA_OK=(MAS_HOSTNAME="My AI Mac" FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1
+RA_OK=(MAS_HOSTNAME="My AI Mac" FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 FAKE_NC_5900_RC=0
        FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)")
 # shellcheck disable=SC2016  # the inner script expands its own arguments
 racheck() { env "${RA_OK[@]}" bash -c '. "$1"/lib/common.sh; . "$2"; mod_check' _ "$REPO_DIR" "$REMOTE" >"$OUT" 2>"$OUT.err"; }

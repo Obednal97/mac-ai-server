@@ -89,6 +89,17 @@ if [ "$MODE" = root ]; then
   log() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
   as_user() { launchctl asuser "$UIDN" sudo -u "$U" "$@"; }
   r() { if [ "$DRY_RUN" = 1 ]; then log "[dry-run] $(printf '%q ' "$@")"; else log "+ $*"; "$@"; fi; }
+  # tmo <seconds> <command...>: run it, but kill it after that long, so one stuck step (a Tailscale
+  # logout with no network, a tmux or keychain call waiting on the login session) can't stop the
+  # wipe from finishing and the Mac from shutting down.
+  tmo() {
+    local s="${HANDOVER_TIMEOUT:-$1}" p w rc; shift   # HANDOVER_TIMEOUT: tests only
+    "$@" & p=$!
+    ( sleep "$s"; kill -KILL "$p" 2>/dev/null && log "   !! timed out after ${s}s: $*" ) & w=$!
+    wait "$p"; rc=$?
+    pkill -P "$w" 2>/dev/null; kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+    return "$rc"
+  }
   probe() {  # dry run: report whether a path exists and root can read it (TCC can block this)
     [ "$DRY_RUN" = 1 ] || return 0
     if [ ! -e "$1" ] && [ ! -L "$1" ]; then log "   (absent: $1)"
@@ -119,10 +130,19 @@ if [ "$MODE" = root ]; then
     rm -f "$PLIST" "$RUNNER"; exit 1
   fi
   sleep "$DELAY"
+  # Last resort: whatever happens below, the Mac still shuts down (HANDOVER_WATCHDOG seconds, 0 = off).
+  WATCHDOG="${HANDOVER_WATCHDOG:-900}"
+  # It still does the two steps that matter most for the new owner first: no password-free sudo for
+  # the old account, and this Mac off the old owner's Tailscale.
+  if [ "$DRY_RUN" != 1 ] && [ "$WATCHDOG" -gt 0 ] 2>/dev/null; then
+    ( sleep "$WATCHDOG"; log "!! the handover took over ${WATCHDOG}s; finishing the essentials and shutting down"
+      for f in "$SYSROOT"/etc/sudoers.d/*-nopasswd; do [ -e "$f" ] && rm -f "$f"; done
+      tmo 60 "$TAILSCALE" logout; shutdown -h now ) &
+  fi
   KEEP_SSID="$(cat "$STATE_DIR/new-ssid" 2>/dev/null)"   # the new owner's network, saved by phase 1
 
   log "-- stopping tmux, Remote Control and Claude Code"
-  r launchctl asuser "$UIDN" sudo -u "$U" "$TMUX_BIN" kill-server
+  r tmo 20 launchctl asuser "$UIDN" sudo -u "$U" "$TMUX_BIN" kill-server
   r pkill -U "$UIDN" -f "$H/.local/bin/claude-remote-loop"
   log "   claude processes: $(pgrep -U "$UIDN" -x claude | tr '\n' ' ')"
   if [ "$DRY_RUN" = 1 ]; then
@@ -131,6 +151,10 @@ if [ "$MODE" = root ]; then
   else
     pkill -TERM -U "$UIDN" -x claude; sleep 3; pkill -KILL -U "$UIDN" -x claude
   fi
+
+  # Early, and needing no network: the new owner must never get password-free sudo for this account.
+  log "-- password-free sudo (for the setup owner only)"
+  for f in "$SYSROOT"/etc/sudoers.d/*-nopasswd; do [ -e "$f" ] && r rm -f "$f"; done
 
   log "-- quitting the browsers"
   for a in Safari "Google Chrome" firefox "Microsoft Edge"; do r pkill -U "$UIDN" -x "$a"; done
@@ -143,7 +167,7 @@ if [ "$MODE" = root ]; then
            .zsh_history .zsh_sessions .bash_history .lesshst .python_history \
            .ssh .gitconfig .git-credentials .config/gh .cache/huggingface .netrc \
            .ollama/id_ed25519 .ollama/id_ed25519.pub \
-           .ollama/history .mac-ai-server/install.log \
+           .ollama/history .mac-ai-server/install.log .mac-ai-server/claude-token \
            setup-ai-server.log WELCOME.txt .config/opencode .local/share/opencode .local/state/opencode; do
     probe "$H/$p"; [ -e "$H/$p" ] || [ -L "$H/$p" ] && r rm -rf "$H/$p"
   done
@@ -163,17 +187,22 @@ if [ "$MODE" = root ]; then
   # the temporary password, at the next login. Delete it in the user's session first, so it also
   # leaves the search list, then make sure the files are gone.
   probe "$H/Library/Keychains/login.keychain-db"
-  r launchctl asuser "$UIDN" sudo -u "$U" security delete-keychain "$H/Library/Keychains/login.keychain-db"
+  r tmo 20 launchctl asuser "$UIDN" sudo -u "$U" security delete-keychain "$H/Library/Keychains/login.keychain-db"
   r rm -f "$H/Library/Keychains/login.keychain-db"
   r find "$H/Library/Keychains" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
   r rm -rf "$STATE_DIR" "$GO_FILE" "$SYSROOT/var/tmp/handover-card.txt"
   for a in "$SYSROOT"/var/tmp/handover-ask.*; do [ -e "$a" ] && r rm -rf "$a"; done
+  # Multi-user sharing (docs/multi-user.md): the old owner's shared plugins, skills and launchers.
+  # The new owner's first-run step 6 shares their own again if they want it.
+  for p in "$SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json" \
+           "$SYSROOT/Library/Application Support/mac-ai-server/shared-claude" \
+           "$SYSROOT/usr/local/bin/claude-local" "$SYSROOT/usr/local/bin/chat"; do
+    probe "$p"; { [ -e "$p" ] || [ -L "$p" ]; } && r rm -rf "$p"
+  done
 
   log "-- Tailscale"
   if [ "$DRY_RUN" = 1 ]; then log "   status: $("$TAILSCALE" status 2>&1 | head -1)"; fi
-  r "$TAILSCALE" logout
-  log "-- password-free sudo (for the setup owner only)"
-  for f in "$SYSROOT"/etc/sudoers.d/*-nopasswd; do [ -e "$f" ] && r rm -f "$f"; done
+  r tmo 60 "$TAILSCALE" logout
   # Last before shutdown (Tailscale needed the network): saved Wi-Fi networks and their passwords
   # in the System keychain, except the new owner's from phase 1. Names are never logged.
   log "-- saved Wi-Fi networks"
@@ -294,6 +323,16 @@ power_button() {  # power_button <model>: where the power button is, for the car
     *)             echo "press its power button." ;;
   esac
 }
+# shellcheck disable=SC2016  # written to ~/.zprofile as is
+FR_HOOK='[ -f ~/.first-run/pending ] && [ -t 0 ] && [ -z "$TMUX" ] && ~/.local/bin/first-run-setup'
+arm_pending() {  # a fresh first-run state (no finished steps) that starts the assistant at the next login, plus its ~/.zprofile hook
+  [ "$DRY_RUN" = 1 ] && return 0
+  rm -rf ~/.first-run && mkdir -p ~/.first-run && touch ~/.first-run/pending || { warn "Couldn't arm the first-run assistant (~/.first-run/pending)."; return 1; }
+  grep -qF "$FR_HOOK" ~/.zprofile 2>/dev/null || printf '\n# First-run setup assistant (does nothing once setup is finished)\n%s\n' "$FR_HOOK" >> ~/.zprofile
+}
+other_accounts() {  # other people's accounts on this Mac (handover only wipes this one)
+  dscl . -list /Users UniqueID 2>/dev/null | awk -v me="$USER" '$2 >= 501 && $1 != me {print $1}' | paste -sd' ' -
+}
 read_secret_file() {  # read_secret_file <var name of path>: print its contents and delete it
   local f="${!1:-}"; [ -n "$f" ] || return 0
   [ -r "$f" ] || { warn "$1 is set but $f can't be read."; return 1; }
@@ -308,6 +347,8 @@ phase1() {  # uses OLD, NEW_SSID, NEW_WIFI_PW; sets TEMP and CARD
   local changed=0 prev=""
   [ -f "$TEMP_FILE" ] && prev="$(cat "$TEMP_FILE")"
   install_first_run
+  local others; others="$(other_accounts)"
+  [ -z "$others" ] || warn "Other accounts on this Mac: $others. The handover only clears yours. If they shouldn't stay, remove them first: mac-ai-server users remove <name>"
 
   step "Temporary password"
   if [ "$DRY_RUN" = 1 ]; then
@@ -354,6 +395,9 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
     # Auto-login right away: a reboot from here on logs in with the new password, so the GUI
     # session (and the Claude Code session in it) comes back even if this script is cut off.
     write_autologin "$TEMP"
+    # Arm the first-run assistant right away too: if this script is cut off from here on, phase 2
+    # can still run, and the new owner still gets the guided setup.
+    arm_pending
     printf '%sThe password for %s is now:  %s%s\n' "$b" "$USER" "$TEMP" "$rst"
   fi
 
@@ -379,6 +423,8 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
   run sudo rm -f "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
   # (On this model autorestart and autorestartatconnect are mutually exclusive; set only autorestart.)
   run sudo pmset -a autorestart 1
+  # Auto-login straight to the desktop, not the lock screen (which leaves the keychain locked).
+  run sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
 
   # Pre-load the new owner's Wi-Fi so the Mac joins it by itself at their place. (networksetup
   # with a password crashes on macOS 27, so the password goes into the System keychain the way
@@ -410,15 +456,12 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
   unset NEW_WIFI_PW
 
   step "Arming the first-run setup assistant"
-  # shellcheck disable=SC2016  # written to ~/.zprofile as is
-  local HOOK='[ -f ~/.first-run/pending ] && [ -t 0 ] && [ -z "$TMUX" ] && ~/.local/bin/first-run-setup'
   if [ "$DRY_RUN" = 1 ]; then
     run rm -rf "$HOME/.first-run"; run mkdir -p "$HOME/.first-run"; run touch "$HOME/.first-run/pending"
-    grep -qF "$HOOK" ~/.zprofile 2>/dev/null && echo "(~/.zprofile hook already present)" || echo "[dry-run] append first-run hook to ~/.zprofile"
+    grep -qF "$FR_HOOK" ~/.zprofile 2>/dev/null && echo "(~/.zprofile hook already present)" || echo "[dry-run] append first-run hook to ~/.zprofile"
     echo "[dry-run] write ~/Desktop/Start Here.command"
   else
-    rm -rf ~/.first-run && mkdir -p ~/.first-run && touch ~/.first-run/pending
-    grep -qF "$HOOK" ~/.zprofile 2>/dev/null || printf '\n# First-run setup assistant (does nothing once setup is finished)\n%s\n' "$HOOK" >> ~/.zprofile
+    arm_pending
     # Desktop shortcut for anyone with a monitor. A new Terminal window already starts the
     # assistant through ~/.zprofile, so this only runs it if that didn't just happen.
     cat > ~/Desktop/"Start Here.command" <<'EOF'

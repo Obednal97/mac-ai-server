@@ -1,15 +1,22 @@
 #!/bin/bash
 # Claude Code pieces: claude, claude-local, chat, tmux session "main" (window "remote"), SSH welcome screen.
-# Env: MAS_PRIMARY, MAS_CONTEXT (from the plan). Tests: MAS_BREW_PREFIX.
+# Env: MAS_PRIMARY, MAS_CONTEXT (from the plan), MAS_MULTIUSER. Tests: MAS_BREW_PREFIX, MAS_SYSROOT.
 # claude-local and chat are templates (__MODEL__, __CONTEXT__) filled in from the plan at install time.
 
 MAS_MOD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _mas_cl_bin() { printf '%s' "$HOME/.local/bin"; }
 _mas_cl_agent() { printf '%s' "$HOME/Library/LaunchAgents/local.ai-tmux.plist"; }
 _mas_cl_have() { command -v claude >/dev/null 2>&1 || [ -x "$(_mas_cl_bin)/claude" ]; }
+# Multi-user: shared copies of claude-local and chat for every account (one Ollama, one set of models).
+_mas_cl_sysbin() { printf '%s' "${MAS_SYSROOT:-}/usr/local/bin"; }
+# Optional keychain-free login from `claude setup-token` (mac-ai-server token set).
+_mas_cl_token() { printf '%s' "$HOME/.mac-ai-server/claude-token"; }
 _mas_cl_logged_in() {
-  security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ]
+  security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ] \
+    || [ -s "$(_mas_cl_token)" ]
 }
+# The shared copy is ours if its first comment line matches the template's.
+_mas_cl_ours() { [ -f "$2" ] && [ "$(sed -n 2p "$2")" = "$(sed -n 2p "$MAS_MOD_ROOT/bin/$1")" ]; }
 # The SSH block counts as installed if it has our marker or the old kit's ai-motd call (ruling R4).
 _mas_cl_zprofile_count() { grep -cE 'ai-motd|# mac-ai-server: ssh' "$HOME/.zprofile" 2>/dev/null || true; }
 # Escape a value for the replacement side of sed (& | \).
@@ -57,6 +64,22 @@ mod_run() {
   _mas_cl_put "$tmp" "$bin/claude-local"
   sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$tmp"
   _mas_cl_put "$tmp" "$bin/chat"
+  local sysbin; sysbin="$(_mas_cl_sysbin)"
+  if [ "${MAS_MULTIUSER:-no}" = yes ]; then
+    for f in claude-local chat; do
+      cmp -s "$bin/$f" "$sysbin/$f" && continue
+      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$bin/$f" "$sysbin/$f"; }; then
+        mas_warn "Couldn't install $sysbin/$f for the other accounts."; rc=1
+      fi
+    done
+    [ "$rc" -eq 0 ] && echo "claude-local and chat are shared with every account on this Mac ($sysbin)."
+  else
+    for f in claude-local chat; do _mas_cl_ours "$f" "$sysbin/$f" && sudo rm -f "$sysbin/$f"; done
+    # and the shared plugins and skills (written by the multiuser module)
+    local shared="${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
+    [ -f "$shared" ] && sudo rm -f "$shared"
+    [ -d "${MAS_SYSROOT:-}/Library/Application Support/mac-ai-server/shared-claude" ] && sudo rm -rf "${MAS_SYSROOT:-}/Library/Application Support/mac-ai-server/shared-claude"
+  fi
   # The everyday command: ~/.local/bin/mac-ai-server -> this checkout's mac-ai-server.
   [ -f "$MAS_MOD_ROOT/mac-ai-server" ] && ln -sfn "$MAS_MOD_ROOT/mac-ai-server" "$bin/mac-ai-server"
 
@@ -92,6 +115,10 @@ BLOCK
   # shellcheck disable=SC2016  # literal line for the shell profile
   grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+  # The optional setup-token login, for when the keychain is locked (does nothing without the file).
+  # shellcheck disable=SC2016  # literal line for the shell profile
+  grep -q 'mac-ai-server/claude-token' "$HOME/.zshrc" 2>/dev/null \
+    || echo '[ -r ~/.mac-ai-server/claude-token ] && export CLAUDE_CODE_OAUTH_TOKEN="$(cat ~/.mac-ai-server/claude-token)"  # mac-ai-server token' >> "$HOME/.zshrc"
 
   if ! _mas_cl_logged_in; then
     mas_action "Log in to Claude Code inside tmux, then accept the Remote Control prompt" \
@@ -127,6 +154,14 @@ mod_check() {
   if ! _mas_cl_logged_in; then
     echo "fail Claude Code isn't logged in — run: tmux new -As main, then claude"
     return 1
+  fi
+  if [ "${MAS_MULTIUSER:-no}" = yes ]; then
+    for n in claude-local chat; do
+      if ! cmp -s "$bin/$n" "$(_mas_cl_sysbin)/$n"; then
+        echo "fail The shared $n for other accounts is missing or out of date — run: mac-ai-server install --only claude"
+        return 1
+      fi
+    done
   fi
   echo "ok Claude Code, claude-local, tmux agent and SSH welcome screen are set up"
 }

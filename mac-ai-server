@@ -42,6 +42,8 @@ mac-ai-server: look after your AI server
   mac-ai-server models remove <m>    Delete a downloaded model
   mac-ai-server tools                Show, add or remove developer tools (tools add <name>)
   mac-ai-server permissions          Walk through the macOS permissions
+  mac-ai-server users                Show the accounts; users add <name> / users remove <name>
+  mac-ai-server token set            Log Claude Code in without the keychain (claude setup-token)
   mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
   mac-ai-server install [options]    Run the installer again (--plan shows what it would do)
   mac-ai-server help                 Show this list
@@ -247,6 +249,120 @@ cmd_permissions() {
   ( . "$mod"; mod_run; mod_check )
 }
 
+# ---------------------------------------------------------------- users (multi-user)
+valid_user() { case "$1" in ""|[!a-z]*|*[!a-z0-9._-]*) return 1 ;; *) [ "${#1}" -le 31 ] ;; esac; }
+user_home() { dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{print $2}'; }
+is_admin() { dseditgroup -o checkmember -m "$1" admin >/dev/null 2>&1; }
+people() { dscl . -list /Users UniqueID 2>/dev/null | awk '$2 >= 501 {print $1}'; }
+
+users_list() {
+  local u tag
+  echo "Accounts on this Mac:"
+  for u in $(people); do
+    tag="standard"; is_admin "$u" && tag="administrator"
+    [ "$u" = "$(id -un)" ] && tag="$tag, you"
+    printf '  %s (%s)\n' "$u" "$tag"
+  done
+  [ "${MAS_MULTIUSER:-no}" = yes ] || echo "Multi-user mode is off. mac-ai-server users add <name> turns it on."
+}
+
+users_add() {
+  local name="${1:-}" full="${2:-}" h g host
+  valid_user "$name" || mas_die "Give a short account name: lower-case letters, numbers, . _ or -, starting with a letter. Like: mac-ai-server users add sam"
+  id "$name" >/dev/null 2>&1 && mas_die "There's already an account called $name."
+  if [ "${MAS_MULTIUSER:-no}" != yes ]; then
+    echo "Turning on multi-user mode first (your home folder becomes private, claude-local and chat are shared)."
+    MAS_MULTIUSER=yes "$MAS_INSTALL_SH" --yes --only claude,multiuser || mas_die "Couldn't turn on multi-user mode, so no account was added."
+    config_set MAS_MULTIUSER yes
+  fi
+  echo
+  echo "Choose a temporary password for $name and tell them it. They pick their own at their first login."
+  sudo sysadminctl -addUser "$name" -fullName "${full:-$name}" -password - || mas_die "Couldn't create the account $name."
+  id "$name" >/dev/null 2>&1 || mas_die "macOS didn't create the account $name."
+  sudo createhomedir -c -u "$name" >/dev/null 2>&1 || true
+  h="$(user_home "$name")"
+  # Private, like yours: macOS makes new home folders readable by every account.
+  { [ -n "$h" ] && sudo chmod 700 "$h"; } || mas_warn "Couldn't make $name's home folder private. Run: sudo chmod 700 /Users/$name"
+  # SSH and Screen Sharing are limited to these groups when they exist (by default only admins are in them).
+  for g in com.apple.access_ssh com.apple.access_screensharing; do
+    dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -a "$name" -t user "$g"
+  done
+  echo "Installing Claude Code for $name..."
+  # shellcheck disable=SC2016  # runs in the new account's own shell
+  sudo -u "$name" -H /bin/bash -c '
+    cd "$HOME" || exit 1
+    curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1 || echo "Claude Code install failed; they can run: curl -fsSL https://claude.ai/install.sh | bash"
+    touch .zshrc .zprofile
+    grep -q ".local/bin" .zshrc || echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> .zshrc
+    touch .mas-new-password
+    grep -q "mas-new-password" .zprofile || cat >> .zprofile <<'"'"'BLOCK'"'"'
+
+# mac-ai-server: first login on a shared Mac
+if [ -f ~/.mas-new-password ] && [ -t 0 ]; then
+  echo "Welcome. First, choose your own password (you will need the temporary one once more)."
+  passwd && rm -f ~/.mas-new-password
+fi
+if [ -t 1 ]; then
+  echo "This Mac runs a shared local AI model. Try: claude (log in with your own Claude account),"
+  echo "claude-local (Claude Code on the local model) or chat. Your files are private to you."
+fi
+BLOCK
+  '
+  host="$(scutil --get LocalHostName 2>/dev/null)"
+  echo
+  echo "Done. $name can now log in:"
+  echo "  On the same network:  ssh $name@${host:-this-mac}.local   (or Screen Sharing to ${host:-this-mac}.local)"
+  echo "  From anywhere:        share this Mac with them in Tailscale (login.tailscale.com > Machines > ... > Share)"
+  echo "They use the same AI models as you (nothing downloads twice), but can't see your files or projects."
+}
+
+users_remove() {
+  local name="${1:-}" ok
+  valid_user "$name" || mas_die "Say which account to remove. Like: mac-ai-server users remove sam"
+  people | grep -qx "$name" || mas_die "There's no person's account called $name (system accounts can't be removed here)."
+  [ "$name" = "$(id -un)" ] && mas_die "That's your own account."
+  is_admin "$name" && mas_die "$name is an administrator. Remove administrators in System Settings > Users & Groups."
+  echo "This deletes the account $name and everything in its home folder. It can't be undone."
+  read -r -p "Type the account name to confirm: " ok
+  [ "$ok" = "$name" ] || mas_die "Not confirmed; nothing was changed."
+  sudo sysadminctl -deleteUser "$name" || mas_die "Couldn't remove $name."
+  echo "Removed $name."
+}
+
+cmd_users() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list) users_list ;;
+    add) users_add "$@" ;;
+    remove) users_remove "$@" ;;
+    *) mas_die "Unknown users option '$sub'. Try: list, add <name> [\"Full Name\"], remove <name>" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- token (keychain-free Claude login)
+MAS_TOKEN_FILE="$HOME/.mac-ai-server/claude-token"
+cmd_token() {
+  local t
+  case "${1:-status}" in
+    status)
+      if [ -s "$MAS_TOKEN_FILE" ]; then echo "A setup-token login is saved: new shells use it, even when the keychain is locked."
+      else echo "No setup-token login saved. Claude Code uses its normal login (in the keychain)."; fi ;;
+    set)
+      echo "Claude Code will open a sign-in link and then print a long-lived token. Copy it."
+      claude setup-token || mas_die "claude setup-token didn't finish; nothing was saved."
+      read -r -s -p "Paste the token here (it isn't shown): " t; echo
+      case "$t" in ""|*[[:space:]]*) mas_die "That doesn't look like a token; nothing was saved." ;; esac
+      mkdir -p "$(dirname "$MAS_TOKEN_FILE")"
+      rm -f "$MAS_TOKEN_FILE"   # a new file, so umask 077 applies (an old one keeps its mode)
+      ( umask 077; printf '%s\n' "$t" > "$MAS_TOKEN_FILE" ) || mas_die "Couldn't save $MAS_TOKEN_FILE."
+      t=""
+      echo "Saved. New Terminal windows, SSH logins and tmux windows use it. Remote Control keeps the normal login."
+      echo "(For a tmux window that's already open, run: exec zsh -l)" ;;
+    clear) rm -f "$MAS_TOKEN_FILE"; echo "Removed the setup-token login. Claude Code goes back to its normal login." ;;
+    *) mas_die "Unknown token option '$1'. Try: status, set, clear" ;;
+  esac
+}
+
 cmd_handover() {
   local script="${MAS_HANDOVER_SCRIPT:-$MAS_ROOT/handover/prepare-handover.sh}" flag
   case "${1:-}" in
@@ -266,6 +382,8 @@ case "$cmd" in
   tools)       cmd_tools "$@" ;;
   permissions) cmd_permissions "$@" ;;
   handover)    cmd_handover "$@" ;;
+  users)       cmd_users "$@" ;;
+  token)       cmd_token "$@" ;;
   install)     exec "$MAS_INSTALL_SH" "$@" ;;
   *) usage >&2; echo >&2; mas_die "Unknown command '$cmd'." ;;
 esac

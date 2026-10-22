@@ -75,7 +75,9 @@ You'll see the **welcome screen**:
 
 **Always work inside tmux over SSH.** Run `tmux new -As main`. If the connection drops, everything keeps running, and the same command reconnects you.
 
-This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it.
+This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. (The installer makes auto-login go straight to the desktop, not the lock screen, so the keychain is unlocked after a restart too.)
+
+**Keychain-free login (optional).** `mac-ai-server token set` runs `claude setup-token` and saves the long-lived token in `~/.mac-ai-server/claude-token`, readable only by you. New shells, SSH logins and tmux windows then use it (`CLAUDE_CODE_OAUTH_TOKEN`), even when the keychain is locked. Remote Control and `claude-local` ignore it: Remote Control needs the normal claude.ai login. `mac-ai-server token clear` removes it. A handover deletes it.
 
 `mosh` is installed too. It's an SSH alternative that copes better with flaky mobile connections: `mosh admin@ai-mini`.
 
@@ -90,5 +92,7 @@ To see the Mac's screen from another Mac:
 2. Enter `vnc://ai-mini.local`, or `vnc://ai-mini` with Tailscale, and log in with the Mac's account.
 
 On other devices, use any VNC app.
+
+The installer lets your account connect. On a fresh Mac, the Screen Sharing service can be running while nobody is allowed in, so every connection is refused. `doctor` checks that it answers and that you're allowed. macOS 26 and 27 may only let Screen Sharing be **switched on** at the Mac itself (System Settings > General > Sharing). If the install prints `ACTION NEEDED: Turn on Screen Sharing`, do that once with a keyboard and screen.
 
 Screen Sharing is how you click the macOS prompts on a Mac with no monitor, such as the Location "Allow" box.

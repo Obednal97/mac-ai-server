@@ -170,4 +170,79 @@ assert_ok "plain message" has "Handover support isn't installed."
 printf '#!/bin/sh\necho "install.sh $*" >> "$FAKE_LOG"\n' > "$FB/install.sh"
 run install --plan; assert_logged '^install.sh --plan'
 
+
+# --- users: multi-user accounts (fake sysadminctl/id; nothing real is created)
+UD="$T_TMP/users"; mkdir -p "$UD"
+cat > "$FB/sysadminctl" <<'FAKE'
+#!/bin/bash
+echo "sysadminctl $*" >> "$FAKE_LOG"
+case "$1" in -addUser) touch "$FAKE_UD/$2" ;; -deleteUser) rm -f "$FAKE_UD/$2" ;; esac
+FAKE
+cat > "$FB/id" <<'FAKE'
+#!/bin/bash
+case "${1:-}" in -*|"") exec /usr/bin/id "$@" ;; esac
+[ -e "$FAKE_UD/$1" ] && { echo "uid=502($1)"; exit 0; }
+exec /usr/bin/id "$@"
+FAKE
+printf '#!/bin/sh\necho "createhomedir $*" >> "$FAKE_LOG"\n' > "$FB/createhomedir"
+chmod +x "$FB/sysadminctl" "$FB/id" "$FB/createhomedir"
+export FAKE_UD="$UD"
+run users add "Bad Name"
+assert_eq "$?" 1 "users add rejects a bad name"
+run users add root
+assert_ok "users add refuses an existing account" has "already an account called root"
+# multi-user off: turned on first (config + installer), then the account
+FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/samhome" run users add sam "Sam Example" </dev/null
+assert_eq "$?" 0 "users add ok"
+assert_ok "multi-user mode saved" grep -qx 'MAS_MULTIUSER=yes' "$HOME/.mac-ai-server/config.env"
+assert_logged '^install.sh --yes --only claude,multiuser'
+assert_logged '^sysadminctl -addUser sam -fullName Sam Example -password -$'
+assert_logged '^sudo chmod 700 .*/samhome'
+assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_ssh'
+assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_screensharing'
+assert_logged '^curl -fsSL https://claude.ai/install.sh'
+assert_ok "first-login password change armed" grep -q 'mas-new-password' "$HOME/.zprofile"
+assert_ok "says how to connect" has "ssh sam@"
+# multi-user already on: no installer run
+FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/kimhome" MAS_MULTIUSER=yes run users add kim </dev/null
+assert_not_logged '^install.sh'
+assert_logged '^sysadminctl -addUser kim -fullName kim -password -$'
+# remove: needs the name typed back; only people's accounts, never yours or an administrator's
+FAKE_OUT_dscl=$'sam 502\nkim 503\n'"$(id -un) 501"; export FAKE_OUT_dscl
+run users remove nobody <<< nobody
+assert_ok "system accounts can't be removed" has "system accounts can't be removed"
+assert_not_logged 'deleteUser'
+echo nope | run users remove sam
+assert_eq "$?" 1 "remove not confirmed"
+assert_not_logged 'deleteUser'
+FAKE_GROUP_MEMBER_RC=67 run users remove sam <<< "sam"
+assert_eq "$?" 0 "remove confirmed"
+assert_logged '^sysadminctl -deleteUser sam'
+run users remove "$(id -un)" <<< "$(id -un)"
+assert_ok "can't remove yourself" has "your own account"
+FAKE_GROUP_MEMBER_RC=0 run users remove kim <<< kim
+assert_ok "can't remove an administrator" has "is an administrator"
+unset FAKE_OUT_dscl
+run users frob
+assert_eq "$?" 1 "unknown users option fails"
+
+# --- token: keychain-free Claude login, saved 0600; claude setup-token is faked
+printf '#!/bin/sh\necho "claude $*" >> "$FAKE_LOG"\n' > "$FB/claude"; chmod +x "$FB/claude"
+run token
+assert_ok "token status when none" has "No setup-token login saved"
+run token set <<< "fake-setup-token-123"
+assert_eq "$?" 0 "token set ok"
+assert_logged '^claude setup-token'
+assert_eq "$(cat "$HOME/.mac-ai-server/claude-token")" "fake-setup-token-123" "token saved"
+assert_eq "$(stat -f %Lp "$HOME/.mac-ai-server/claude-token")" 600 "token file is 600"
+assert_fails "token never printed" has "fake-setup-token-123"
+# an existing, too-open token file is replaced with a 600 one
+chmod 644 "$HOME/.mac-ai-server/claude-token"
+run token set <<< "fake-setup-token-456"
+assert_eq "$(stat -f %Lp "$HOME/.mac-ai-server/claude-token")" 600 "re-saved token file is 600"
+run token set <<< "not a token"
+assert_eq "$?" 1 "token with spaces refused"
+run token clear
+assert_fails "token cleared" test -e "$HOME/.mac-ai-server/claude-token"
+
 t_summary

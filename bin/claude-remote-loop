@@ -3,6 +3,8 @@
 # from the Claude mobile app or claude.ai/code. Started at login inside tmux (window "remote").
 # One-time setup: run `cd ~/projects && claude`, accept the trust prompt and log in.
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+# Remote Control needs the full claude.ai login, not a setup-token one (mac-ai-server token).
+unset CLAUDE_CODE_OAUTH_TOKEN
 cd "$HOME/projects" || exit 1
 while true; do
   claude remote-control
