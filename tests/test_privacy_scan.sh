@@ -26,6 +26,9 @@ plant() {
   git -C "$R" rm -qf planted.txt
 }
 plant email "contact: someone@""gmail.test"
+plant evil-noreply "x noreply@""evil.example"
+plant fake-noreply "x noreply@anthropic.com.""evil.example"
+plant prefixed-noreply "x notnoreply@""anthropic.com"
 plant tailscale "host 100.""101.102.103"
 plant tailscale-low "host 100.""64.0.1"
 plant artifact "see https://claude.ai/""artifact/abc"
@@ -41,6 +44,12 @@ assert_ok "100.63/100.128 not flagged" bash "$SCAN" "$R"
 printf '1+x@users.noreply.github.com\n' > "$R/ok.txt"
 assert_ok "noreply github allowed" bash "$SCAN" "$R"
 git -C "$R" rm -qf ok.txt
+
+# CRLF blocklist is handled
+printf 'zzq-secret\r\n' > "$HOME/.mac-ai-server-private-blocklist"
+printf 'has zzq-secret\n' > "$R/crlf.txt"; git -C "$R" add crlf.txt
+assert_fails "CRLF blocklist line still matches" bash "$SCAN" "$R"
+git -C "$R" rm -qf crlf.txt; rm "$HOME/.mac-ai-server-private-blocklist"
 
 # docs/superpowers is excluded
 mkdir -p "$R/docs/superpowers"; printf 'a@%sb.test\n' '' > "$R/docs/superpowers/p.md"

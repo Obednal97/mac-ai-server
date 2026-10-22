@@ -34,7 +34,7 @@ scan_stream() {
   grep -nE "$TSIP" "$TMP/in" | report "$1" tailscale-ip
   grep -nE "$OTHER" "$TMP/in" | report "$1" token-or-link
   # emails: keep only matches that are not noreply addresses
-  grep -noE "$EMAIL" "$TMP/in" | grep -viE 'noreply' | report "$1" email
+  grep -noE "$EMAIL" "$TMP/in" | grep -viE '^[0-9]+:noreply@anthropic\.com$|@users\.noreply\.github\.com$' | report "$1" email
   if [ -s "$TMP/bl" ]; then
     grep -niF -f "$TMP/bl" "$TMP/in" | report "$1" blocklist
   fi
@@ -43,7 +43,7 @@ scan_stream() {
 : > "$TMP/bl"
 BL="$HOME/.mac-ai-server-private-blocklist"
 if [ "$GENERIC_ONLY" -eq 0 ] && [ -f "$BL" ]; then
-  grep -vE '^[[:space:]]*(#|$)' "$BL" > "$TMP/bl"
+  tr -d '\r' < "$BL" | grep -vE '^[[:space:]]*(#|$)' > "$TMP/bl"
 fi
 
 git ls-files -z -- . ':!docs/superpowers' | while IFS= read -r -d '' f; do
