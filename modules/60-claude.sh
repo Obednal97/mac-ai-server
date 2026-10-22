@@ -122,6 +122,29 @@ BLOCK
 [ -n "$SSH_CONNECTION" ] && [ -x ~/.local/bin/ai-keychain-unlock ] && ~/.local/bin/ai-keychain-unlock --login
 BLOCK
   fi
+  # SSH logins go straight into the persistent tmux session (MAS_TMUX_ATTACH=no turns it off). Last in
+  # ~/.zprofile, after the welcome screen, the keychain unlock and the first-run assistant.
+  if [ "${MAS_TMUX_ATTACH:-yes}" = yes ]; then
+    if ! grep -q '# mac-ai-server: tmux attach$' "$HOME/.zprofile" 2>/dev/null; then
+      cat >> "$HOME/.zprofile" <<'BLOCK'
+
+# mac-ai-server: tmux attach
+# SSH login: go straight into the tmux session "main", so work keeps running after you disconnect.
+# Ctrl-b d leaves it running and returns to a plain shell. Skipped while setup is unfinished, for
+# logins without a terminal (scp, ssh host cmd), and with:  LC_NOTMUX=1 ssh ...
+if [ -n "$SSH_CONNECTION" ] && [ -z "$TMUX" ] && [ -t 0 ] && [ -t 1 ] && [ -z "${LC_NOTMUX:-}" ] &&
+   [ ! -f ~/.first-run/pending ] && command -v tmux >/dev/null 2>&1; then
+  infocmp "$TERM" >/dev/null 2>&1 || export TERM=xterm-256color   # e.g. xterm-ghostty; ~/.zshrc runs later
+  [ "$(tmux display -p -t main '#W' 2>/dev/null)" = remote ] && tmux select-window -t 'main:^'   # not the Remote Control window
+  tmux new -As main -c ~/projects
+fi
+# mac-ai-server: tmux attach end
+BLOCK
+    fi
+  elif grep -q '# mac-ai-server: tmux attach$' "$HOME/.zprofile" 2>/dev/null; then
+    sed '/^# mac-ai-server: tmux attach$/,/^# mac-ai-server: tmux attach end$/d' "$HOME/.zprofile" > "$HOME/.zprofile.mas" &&
+      mv "$HOME/.zprofile.mas" "$HOME/.zprofile" && echo "SSH logins no longer go straight into tmux."
+  fi
   # A terminal this Mac has no description for (Ghostty's xterm-ghostty, kitty's xterm-kitty, ...)
   # makes tmux refuse to start over SSH. Fall back to xterm-256color, which they all understand.
   if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then
@@ -173,6 +196,10 @@ mod_check() {
   fi
   if ! grep -q '# mac-ai-server: keychain' "$HOME/.zprofile" 2>/dev/null; then
     echo "fail SSH logins don't unlock the keychain (block missing from ~/.zprofile) — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if [ "${MAS_TMUX_ATTACH:-yes}" = yes ] && ! grep -q '# mac-ai-server: tmux attach$' "$HOME/.zprofile" 2>/dev/null; then
+    echo "fail SSH logins don't go straight into tmux (block missing from ~/.zprofile) — run: mac-ai-server install --only claude"
     return 1
   fi
   if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then

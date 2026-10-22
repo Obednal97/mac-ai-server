@@ -214,7 +214,7 @@ Open a **new** Terminal window (so it finds the new commands) and try:
 | `claude-local` | The same Claude Code on your Mac's own model. Private, offline, slower, less capable. It doesn't ask permission before it acts (see below). |
 | `chat` | A quick chat with the local model. Type `/bye` to leave. |
 | `chat <model>` | Chat with another downloaded model, e.g. the quick helper. |
-| `tmux new -As main` | A session that keeps running when you close the window or disconnect. Ctrl-b then d leaves it running. |
+| `tmux new -As main` | A session that keeps running when you close the window or disconnect. Ctrl-b then d leaves it running. SSH logins open it by themselves ([remote-access.md](remote-access.md)). |
 | `mac-ai-server doctor` | The checklist, any time. |
 
 Both `claude` and `claude-local` share projects, memory and history. In a project folder, run either one with `--continue` to pick up where the other left off.
@@ -255,6 +255,7 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_STATUSLINE` | `yes` | Install the Claude Code status line. |
 | `MAS_DEV_TOOLS` | `"node pnpm uv git gh jq ripgrep"` | Homebrew developer tools. Empty means none. |
 | `MAS_AGENT_MODE` | `no` | Passwordless admin plus no permission prompts. |
+| `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `main`. |
 | `MAS_HANDOVER` | `no` | You plan to hand this Mac to someone else. |
 | `MAS_REMOVE_APPS` | `no` | `yes` deletes GarageBand, iMovie, Keynote, Numbers and Pages. |
 | `MAS_SUDO` | `terminal` | How the installer gets admin rights. Leave it as is; Claude sets the other mode for one run only. |
