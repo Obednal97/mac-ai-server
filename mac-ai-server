@@ -28,7 +28,6 @@ unset _mas_env
 MAS_CONFIG="$HOME/.mac-ai-server/config.env"
 MAS_INSTALL_SH="${MAS_INSTALL_SH:-$MAS_ROOT/install.sh}"
 MAS_USER_MODEL="${MAS_MODEL:-}"   # what the user chose; empty means "follow the recommendation"
-MAS_DEFAULT_TOOLS="node pnpm uv git gh jq ripgrep"
 
 usage() {
   cat <<'USAGE'
@@ -66,7 +65,8 @@ config_set() {  # config_set KEY VALUE (already quoted if needed)
   mv "$tmp" "$MAS_CONFIG"
 }
 
-valid_tag() { case "$1" in ""|*[!A-Za-z0-9._:/@-]*) return 1 ;; *) return 0 ;; esac; }
+# A model tag or tool name: safe characters only, and never a leading '-' (it would read as an option).
+valid_tag() { case "$1" in ""|-*|*[!A-Za-z0-9._:/@-]*) return 1 ;; *) return 0 ;; esac; }
 
 installed_default() {  # model claude-local currently uses, else empty
   sed -n 's/.*CLAUDE_LOCAL_MODEL:-\([^}]*\)}.*/\1/p' "$HOME/.local/bin/claude-local" 2>/dev/null | head -1
@@ -195,11 +195,11 @@ OPTS
 
 cmd_tools() {
   local sub="${1:-list}" f="${2:-}" cur new t found
-  cur="${MAS_DEV_TOOLS-$MAS_DEFAULT_TOOLS}"
+  cur="${MAS_DEV_TOOLS-}"   # the default is in config/defaults.env, loaded above
   case "$sub" in
     list) echo "Developer tools: $cur"; return 0 ;;
     add|remove)
-      case "$f" in ""|*[!A-Za-z0-9@._+/-]*) mas_die "Give a tool name, like: mac-ai-server tools $sub ripgrep" ;; esac
+      case "$f" in ""|-*|*[!A-Za-z0-9@._+/-]*) mas_die "Give a tool name, like: mac-ai-server tools $sub ripgrep" ;; esac
       new=""; found=0
       for t in $cur; do
         if [ "$t" = "$f" ]; then
@@ -211,6 +211,12 @@ cmd_tools() {
       new="${new# }"
       if [ "$sub" = add ] && [ "$found" = 0 ]; then new="${new:+$new }$f"; fi
       config_set MAS_DEV_TOOLS "\"$new\""
+      if [ "$sub" = remove ]; then
+        # Only the list changes: nothing is uninstalled (other tools may depend on it).
+        echo "Stopped tracking $f: the installer won't install or check it any more."
+        echo "It is still installed. To uninstall it too, run: brew uninstall $f"
+        return 0
+      fi
       MAS_DEV_TOOLS="$new" "$MAS_INSTALL_SH" --yes --only homebrew
       ;;
     *) mas_die "Unknown tools option '$sub'. Try: list, add <name>, remove <name>" ;;

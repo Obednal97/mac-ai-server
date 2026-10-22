@@ -453,7 +453,7 @@ Some of these need the admin password. Without agent mode, Claude's shell can't 
 | `mac-ai-server models default <tag>` | yes | Downloads the model if needed, saves it as `MAS_MODEL` and switches `claude-local` and `chat` to it. Never change the model unless the user asks. |
 | `mac-ai-server models add-fast` | no | Downloads the quick helper model. |
 | `mac-ai-server models remove <tag>` | no | Deletes a downloaded model (not the one in use). |
-| `mac-ai-server tools` / `tools add <name>` / `tools remove <name>` | add/remove: yes | Developer tools. `remove` only takes it off the list; it doesn't uninstall it. |
+| `mac-ai-server tools` / `tools add <name>` / `tools remove <name>` | add: yes | Developer tools. `remove` only takes it off the list and says so; it doesn't uninstall it (`brew uninstall <name>` does). |
 | `mac-ai-server permissions` | no | The System Settings walk-through again. |
 | `mac-ai-server install --plan` / `install --only <module>` | `--plan`: no; others: yes | Re-run all or part of the installer. Module names: power, remote-access, homebrew, tailscale, ollama, models, claude, agent-tools, netsetup, tuning, agent-mode, permissions. |
 | `mac-ai-server handover dry-run` / `phase1` / `phase2` / `local` | yes | Handover (see `docs/handover.md`). **Never run `phase2` unless the user explicitly asked for it.** |

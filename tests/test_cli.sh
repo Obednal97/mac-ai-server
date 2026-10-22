@@ -96,6 +96,12 @@ assert_fails "report has no user" grep -qiF -- "$UN" "$OUT"
 assert_fails "report has no IP" grep -q "192\.168\." "$OUT"
 assert_fails "report has no home path" grep -qF -- "$HOME" "$OUT"
 
+# --- D: model tags never start with '-' (they end up as ollama arguments)
+run models default -rf; assert_eq "$?" 1 "tag with a leading '-' refused (default)"
+assert_ok "names the format" has "Give a model name"
+run models remove --help; assert_eq "$?" 1 "tag with a leading '-' refused (remove)"
+assert_not_logged '^ollama'
+
 # --- tools
 printf '#!/bin/sh\necho "install.sh $* DEVTOOLS=${MAS_DEV_TOOLS:-}" >> "$FAKE_LOG"\n' > "$FB/install.sh"
 run tools list; assert_ok "default tools" has "ripgrep"
@@ -107,6 +113,23 @@ run tools add shellcheck; assert_eq "$(grep -o shellcheck "$HOME/.mac-ai-server/
 run tools remove jq
 assert_ok "jq removed" grep -qx 'MAS_DEV_TOOLS="node pnpm uv git gh ripgrep shellcheck"' "$HOME/.mac-ai-server/config.env"
 run tools add 'bad name;'; assert_eq "$?" 1 "bad formula refused"
+run tools add '--force'; assert_eq "$?" 1 "tool name with a leading '-' refused"
+assert_not_logged '^install.sh'
+# D: remove only stops tracking it; says so and how to uninstall; needs no installer run
+run tools remove gh
+assert_eq "$?" 0 "tools remove ok"
+assert_ok "remove says it stays installed" has "still installed"
+assert_ok "remove says how to uninstall" has "brew uninstall gh"
+assert_not_logged '^install.sh'
+# D: no hard-coded developer-tools list: the default comes from config/defaults.env
+assert_fails "no hard-coded tools list in the CLI" grep -qF '"node pnpm uv git gh jq ripgrep"' "$CLI"
+CP="$T_TMP/cli-copy"; mkdir -p "$CP/config" "$CP/lib"
+cp "$CLI" "$CP/"; cp "$REPO_DIR"/lib/*.sh "$CP/lib/"; cp "$REPO_DIR"/config/* "$CP/config/"
+sed -i '' 's/^MAS_DEV_TOOLS=.*/MAS_DEV_TOOLS="aaa bbb"/' "$CP/config/defaults.env"
+mv "$HOME/.mac-ai-server/config.env" "$T_TMP/cfg.bak"
+( unset MAS_DEV_TOOLS; "$CP/mac-ai-server" tools list ) > "$OUT" 2>&1
+assert_ok "tools list default comes from defaults.env" has "Developer tools: aaa bbb"
+mv "$T_TMP/cfg.bak" "$HOME/.mac-ai-server/config.env"
 
 # --- permissions (fake module dir)
 MD="$T_TMP/mods"; mkdir -p "$MD"
