@@ -11,12 +11,14 @@ _mas_cl_logged_in() {
   security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ]
 }
 # The SSH block counts as installed if it has our marker or the old kit's ai-motd call (ruling R4).
-_mas_cl_zprofile_count() { grep -c 'ai-motd' "$HOME/.zprofile" 2>/dev/null || true; }
+_mas_cl_zprofile_count() { grep -cE 'ai-motd|# mac-ai-server: ssh' "$HOME/.zprofile" 2>/dev/null || true; }
+# Escape a value for the replacement side of sed (& | \).
+_mas_cl_esc() { printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'; }
 
 mod_applies() { true; }
 
 mod_run() {
-  local bin agent rc=0
+  local bin agent rc=0 model_e ctx_e
   bin="$(_mas_cl_bin)"; agent="$(_mas_cl_agent)"
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$bin:$PATH"; export PATH
   mas_step "Claude Code, claude-local, tmux session, welcome screen"
@@ -37,8 +39,9 @@ mod_run() {
 
   mkdir -p "$bin" "$HOME/projects" "$(dirname "$agent")"
   cp "$MAS_MOD_ROOT/bin/ai-motd" "$MAS_MOD_ROOT/bin/claude-remote-loop" "$MAS_MOD_ROOT/bin/ai-tmux-start" "$bin/"
-  sed -e "s|__MODEL__|$MAS_PRIMARY|g" -e "s|__CONTEXT__|$MAS_CONTEXT|g" "$MAS_MOD_ROOT/bin/claude-local" > "$bin/claude-local"
-  sed -e "s|__MODEL__|$MAS_PRIMARY|g" "$MAS_MOD_ROOT/bin/chat" > "$bin/chat"
+  model_e="$(_mas_cl_esc "$MAS_PRIMARY")"; ctx_e="$(_mas_cl_esc "$MAS_CONTEXT")"
+  sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$bin/claude-local"
+  sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$bin/chat"
   chmod +x "$bin/ai-motd" "$bin/claude-remote-loop" "$bin/ai-tmux-start" "$bin/claude-local" "$bin/chat"
 
   if [ -f "$HOME/.tmux.conf" ] && ! cmp -s "$HOME/.tmux.conf" "$MAS_MOD_ROOT/config/tmux.conf"; then
@@ -58,7 +61,7 @@ mod_run() {
 # Claude Code can read its keychain login), then show the welcome screen
 if [ -n "$SSH_CONNECTION" ] && [ -z "$TMUX" ] && [ -t 1 ]; then
   tmux has-session 2>/dev/null || { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }
-  ~/.local/bin/ai-motd
+  [ -f ~/.first-run/pending ] || ~/.local/bin/ai-motd
 fi
 BLOCK
   fi
@@ -93,8 +96,8 @@ mod_check() {
     return 1
   fi
   n="$(_mas_cl_zprofile_count)"
-  if [ "$n" -ne 1 ]; then
-    echo "fail The SSH welcome block in ~/.zprofile appears $n times, expected once — run: mac-ai-server install --only claude (or edit ~/.zprofile)"
+  if [ "$n" -lt 1 ]; then
+    echo "fail The SSH welcome block is missing from ~/.zprofile — run: mac-ai-server install --only claude"
     return 1
   fi
   if ! _mas_cl_logged_in; then

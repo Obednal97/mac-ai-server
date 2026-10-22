@@ -58,6 +58,12 @@ assert_ok "claude-local updated" grep -qF '${CLAUDE_LOCAL_MODEL:-other:7b}' "$BI
 assert_eq "$(grep -c 'CLAUDE_LOCAL_MODEL:-' "$BIN/claude-local")" 1 "model line once"
 runfn mod_run "${PLAN[@]}"
 
+# --- sed-special characters in the model tag
+runfn mod_run MAS_PRIMARY='we&ird|t\ag:1b' MAS_CONTEXT=4096
+assert_ok "claude-local literal tag" grep -qF '${CLAUDE_LOCAL_MODEL:-we&ird|t\ag:1b}' "$BIN/claude-local"
+assert_ok "chat literal tag" grep -qF '${1:-we&ird|t\ag:1b}' "$BIN/chat"
+runfn mod_run "${PLAN[@]}"
+
 # --- tmux config and agent
 assert_ok "tmux.conf installed" grep -q 'history-limit' "$HOME/.tmux.conf"
 echo "old" > "$HOME/.tmux.conf"
@@ -77,10 +83,14 @@ assert_ok "projects dir" test -d "$HOME/projects"
 assert_eq "$(grep -c 'mac-ai-server: ssh' "$HOME/.zprofile")" 1 "ssh block once after 3 runs"
 assert_eq "$(grep -c 'ai-motd' "$HOME/.zprofile")" 1 "ai-motd once"
 assert_eq "$(grep -c '.local/bin' "$HOME/.zshrc")" 1 "PATH line once"
+assert_ok "block keeps first-run guard" grep -qF '[ -f ~/.first-run/pending ] || ~/.local/bin/ai-motd' "$HOME/.zprofile"
 # kit block counts as installed (R4)
 printf '%s\n' '# old kit' 'if [ -n "$SSH_CONNECTION" ]; then ~/.local/bin/ai-motd; fi' > "$HOME/.zprofile"
 runfn mod_run "${PLAN[@]}"
 assert_eq "$(grep -c 'ai-motd' "$HOME/.zprofile")" 1 "kit block not duplicated"
+printf '%s\n' '# ai-motd note' >> "$HOME/.zprofile"
+runfn mod_check "${PLAN[@]}"
+assert_eq "$?" 0 "check accepts several ai-motd mentions"
 assert_eq "$(grep -c 'mac-ai-server: ssh' "$HOME/.zprofile")" 0 "no second block"
 
 # --- login: ACTION NEEDED when not logged in
