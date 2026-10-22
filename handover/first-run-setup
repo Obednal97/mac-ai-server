@@ -1,0 +1,366 @@
+#!/bin/bash
+# shellcheck disable=SC2015  # "a && b || c" is used on purpose where c is a warning
+# First-run setup assistant for a handed-over AI Mac.
+# Starts automatically on login while ~/.first-run/pending exists. Finished steps are
+# remembered in ~/.first-run, so stopping part-way is safe: the next run resumes.
+#   first-run-setup                 run (or resume) setup
+#   first-run-setup --redo <step>   run one step again: password | name | hostkeys | tailscale | sshkey
+# DRY_RUN=1 prints system-changing commands instead of running them.
+# Tests only: MAS_SYSROOT=<dir> prefixes the system paths it writes (/etc/...).
+set -uo pipefail
+
+STATE="$HOME/.first-run"
+DRY_RUN="${DRY_RUN:-0}"
+STEPS="password name hostkeys tailscale sshkey"
+SYSROOT="${MAS_SYSROOT:-}"
+KCPASSWORD="$SYSROOT/etc/kcpassword"
+# Append, so the caller's PATH (and the fakes in tests) come first
+export PATH="${PATH:+$PATH:}/opt/homebrew/bin:$HOME/.local/bin"
+
+b=$'\033[1m'; dim=$'\033[2m'; grn=$'\033[32m'; yel=$'\033[33m'; red=$'\033[31m'; rst=$'\033[0m'
+say()   { printf '%s\n' "$*"; }
+head1() { printf '\n%s━━ %s ━━%s\n\n' "$b" "$*" "$rst"; }
+ok()    { printf '%s✓ %s%s\n' "$grn" "$*" "$rst"; }
+warn()  { printf '%s! %s%s\n' "$yel" "$*" "$rst"; }
+err()   { printf '%s✗ %s%s\n' "$red" "$*" "$rst"; }
+run()   { if [ "$DRY_RUN" = 1 ]; then printf '%s[dry-run] %s%s\n' "$dim" "$*" "$rst"; else "$@"; fi; }
+mark()  { touch "$STATE/done-$1"; }
+is_done() { [ -f "$STATE/done-$1" ]; }
+ask_yn() {  # ask_yn "question" default(y/n)
+  local a; read -r -p "$1 [$( [ "$2" = y ] && echo Y/n || echo y/N )] " a
+  a="${a:-$2}"; [[ "$a" =~ ^[Yy] ]]
+}
+pause() { read -r -p "${1:-Press Enter to continue...}" _; }
+# Passwords never go on a command line (any process can read those with ps): dscl and security
+# get them on stdin in their interactive modes, and perl gets them from the environment.
+dq() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }   # quote for dscl/security stdin
+check_pw() {  # check_pw <password>: is it the current login password?
+  [ "$DRY_RUN" = 1 ] && return 0
+  [ "$(printf 'authonly %s %s\n' "$(dq "$USER")" "$(dq "$1")" | dscl /Search 2>&1)" = Goodbye ]
+}
+set_pw() {  # set_pw <old> <new>: succeeds only if the new password then works
+  [ "$DRY_RUN" = 1 ] && { printf '%s[dry-run] dscl . <<< passwd /Users/%s <old> <new>%s\n' "$dim" "$USER" "$rst"; return 0; }
+  printf 'passwd %s %s %s\n' "$(dq "/Users/$USER")" "$(dq "$1")" "$(dq "$2")" | dscl . >/dev/null 2>&1
+  check_pw "$2"
+}
+sync_keychain() {  # sync_keychain <old> <new>: re-lock the login keychain with the new password
+  [ "$DRY_RUN" = 1 ] && { printf '%s[dry-run] security -i <<< set-keychain-password -o <old> -p <new> login.keychain-db%s\n' "$dim" "$rst"; return 0; }
+  printf 'set-keychain-password -o %s -p %s %s\n' "$(dq "$1")" "$(dq "$2")" \
+    "$(dq "$HOME/Library/Keychains/login.keychain-db")" | security -i >/dev/null 2>&1
+}
+
+write_kcpassword() {  # write_kcpassword <password>  (needs sudo); 0600 from the start
+  [ "$DRY_RUN" = 1 ] && { printf '%s[dry-run] write %s%s\n' "$dim" "$KCPASSWORD" "$rst"; return; }
+  ( umask 077; KCPW="$1" perl -e '
+    my @k=(0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F);
+    my @p=map ord, split //, $ENV{KCPW}; push @p,0; push @p,0 while @p % 12;
+    print map { chr($p[$_] ^ $k[$_ % 11]) } 0..$#p;' | sudo tee "$KCPASSWORD" >/dev/null ) &&
+  sudo chown root:wheel "$KCPASSWORD" && sudo chmod 600 "$KCPASSWORD"
+}
+
+sudo_ok() {  # prompt until sudo works (3 rounds max)
+  [ "$DRY_RUN" = 1 ] && return 0
+  local _i; for _i in 1 2 3; do sudo -v && return 0; done; return 1
+}
+
+# ---------------------------------------------------------------- arguments, locking
+mkdir -p "$STATE"
+if [ "${1:-}" = "--redo" ]; then
+  [[ " $STEPS " == *" ${2:-} "* ]] || { say "Usage: first-run-setup --redo <$(echo "$STEPS" | tr ' ' '|')>"; exit 1; }
+  rm -f "$STATE/done-$2"
+elif [ ! -f "$STATE/pending" ]; then
+  say "Setup is already complete. To run one step again: first-run-setup --redo <$(echo "$STEPS" | tr ' ' '|')>"
+  exit 0
+fi
+
+# Only one copy at a time (e.g. an SSH session and a desktop Terminal window)
+LOCK="$STATE/lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  LPID="$(cat "$LOCK/pid" 2>/dev/null)"; [ -n "$LPID" ] || { sleep 1; LPID="$(cat "$LOCK/pid" 2>/dev/null)"; }  # just created
+  # After a power cut the old pid may now belong to another process (or to this one), so check what it is
+  if [ -n "$LPID" ] && [ "$LPID" != "$$" ] &&
+     ps -p "$LPID" -o command= 2>/dev/null | grep -Eq '^(/bin/)?(ba)?sh [^ ]*first-run-setup( |$)'; then
+    warn "The setup assistant is already running in another window or session."
+    say  "Finish it there, or close that window and run: first-run-setup"
+    exit 0
+  fi
+  rm -rf "$LOCK"; mkdir "$LOCK"   # stale lock from a session that was cut off
+fi
+echo $$ > "$LOCK/pid"
+KEEPALIVE=""
+# shellcheck disable=SC2329  # called by the EXIT trap
+cleanup() { [ -n "$KEEPALIVE" ] && kill "$KEEPALIVE" 2>/dev/null; rm -rf "$LOCK"; date +%s > "$STATE/last-exit"; }
+trap cleanup EXIT
+paused() { stty echo 2>/dev/null; echo; warn "Setup paused. Your progress is saved."; say "It starts again the next time you log in, or run:  first-run-setup"; exit 130; }
+trap paused INT TERM HUP
+
+# ---------------------------------------------------------------- welcome
+if [ "${1:-}" != "--redo" ]; then
+  clear 2>/dev/null
+  cat <<EOF
+${b}Welcome to your AI Mac mini.${rst}
+
+This assistant takes about 5 minutes. It will:
+  1. Set a new password (the one you were given is temporary)
+  2. Put your name on the account
+  3. Name the machine and give it fresh security keys
+  4. Connect it to ${b}your${rst} Tailscale account so you can reach it from anywhere
+  5. Optionally add your SSH key for password-free login
+
+You can stop at any time with Ctrl-C. Finished steps are remembered,
+and the assistant starts again the next time you log in.
+EOF
+  { ls "$STATE"/done-* >/dev/null 2>&1 || [ -f "$STATE/password-changed" ]; } && { say; ok "Resuming where you left off."; }
+  pause
+fi
+
+# ---------------------------------------------------------------- 1. password
+if ! is_done password; then
+  head1 "Step 1 of 5 · New password"
+  if [ -f "$STATE/password-changed" ]; then
+    # Interrupted after the password changed but before the keychain or auto-login was updated
+    say "Your password was already changed. Enter it once more to finish this step."
+    while true; do
+      read -r -s -p "Your new password: " NEW1 || paused; echo
+      check_pw "$NEW1" && break
+      err "That isn't the current password. Try again."
+    done
+    # The login keychain may still be locked with the temporary password: re-sync it
+    if [ ! -f "$STATE/keychain-synced" ]; then
+      OLD="$(cat "$STATE/temp-password" 2>/dev/null)"
+      if [ -z "$OLD" ]; then
+        read -r -s -p "The temporary password from your card (Enter to skip): " OLD || paused; echo
+      fi
+      if [ -n "$OLD" ] && sync_keychain "$OLD" "$NEW1"; then
+        touch "$STATE/keychain-synced"; ok "Login keychain updated to your new password."
+      else
+        warn "The login keychain wasn't updated. If macOS asks for the keychain password later,"
+        warn "choose \"Update Keychain Password\" and enter the temporary password from your card."
+      fi
+      unset OLD
+    fi
+  else
+    say "This password is for SSH, Screen Sharing, the login screen and admin (sudo) prompts."
+    say "Choose something strong, and ${b}store it somewhere safe${rst}: nobody else can reset it remotely."
+    say
+    while true; do
+      read -r -s -p "Current (temporary) password: " OLD || paused; echo
+      check_pw "$OLD" || { err "That isn't the current password. Try again."; continue; }
+      read -r -s -p "New password: " NEW1 || paused; echo
+      read -r -s -p "New password again: " NEW2 || paused; echo
+      [ "$NEW1" = "$NEW2" ] || { err "The passwords don't match. Try again."; continue; }
+      [ "${#NEW1}" -ge 8 ]  || { err "Use at least 8 characters."; continue; }
+      [ "$NEW1" != "$OLD" ] || { err "The new password must be different from the temporary one."; continue; }
+      break
+    done
+    # Keep the handover's temporary password (it's on the card anyway) until this step is done, so
+    # a resume after a cut-off can still re-sync the keychain. Any other password (--redo) is never
+    # written down; a resume asks for it instead.
+    case "$OLD" in
+      mini-[a-z0-9][a-z0-9][a-z0-9][a-z0-9]-[a-z0-9][a-z0-9][a-z0-9][a-z0-9]-[a-z0-9][a-z0-9][a-z0-9][a-z0-9])
+        ( umask 077; printf '%s\n' "$OLD" > "$STATE/temp-password" ) ;;
+    esac
+    if ! set_pw "$OLD" "$NEW1"; then
+      check_pw "$OLD" && rm -f "$STATE/temp-password"
+      err "The password couldn't be changed. Run first-run-setup to try again."; exit 1
+    fi
+    touch "$STATE/password-changed"
+    sync_keychain "$OLD" "$NEW1" && touch "$STATE/keychain-synced" ||
+      warn "The login keychain wasn't updated; macOS may ask for its old (temporary) password later."
+    ok "Password changed. From now on, use your new password."
+    unset OLD NEW2
+  fi
+  say
+  say "Confirm your new password for admin access:"
+  sudo -k
+  sudo_ok || { err "Admin access failed. Run first-run-setup to finish this step."; exit 1; }
+  # Keep auto-login in sync, or the Mac stops logging itself in after a power cut
+  if [ -f "$KCPASSWORD" ] || [ "$DRY_RUN" = 1 ]; then
+    write_kcpassword "$NEW1" || { err "Couldn't update auto-login. Run first-run-setup to finish this step."; exit 1; }
+    ok "Auto-login updated (after a power cut the Mac logs itself in, so AI services come back)."
+  fi
+  unset NEW1
+  rm -f "$STATE/password-changed" "$STATE/keychain-synced" "$STATE/temp-password"
+  mark password
+fi
+
+say
+say "Enter your password if asked, so the remaining steps can make system changes:"
+sudo_ok || { err "Admin access failed. Run first-run-setup to try again."; exit 1; }
+[ "$DRY_RUN" = 1 ] || { while true; do sudo -n true; sleep 50; kill -0 "$$" 2>/dev/null || exit; done 2>/dev/null & KEEPALIVE=$!; }
+
+# ---------------------------------------------------------------- 2. display name
+if ! is_done name; then
+  head1 "Step 2 of 5 · Your name"
+  # dscl prints "RealName: x", or "RealName:" then " x" on the next line when the name has spaces
+  CURRENT="$(dscl . -read "/Users/$USER" RealName 2>/dev/null | sed '1s/^RealName://' | tr -d '\n' | sed 's/^ *//')"
+  say "This name appears on the login screen and in System Settings."
+  say "(Your username for logging in stays ${b}$USER${rst}.)"
+  read -r -p "Your name [${CURRENT:-$USER}]: " RN
+  RN="$(printf '%s' "$RN" | tr -d ':\n\r\t' | sed 's/^ *//; s/ *$//')"
+  if [ -n "$RN" ] && [ "$RN" != "$CURRENT" ]; then
+    run sudo dscl . -create "/Users/$USER" RealName "$RN" && ok "Name set to $RN."
+  fi
+  mark name
+fi
+
+# ---------------------------------------------------------------- 3. machine name + host keys
+OLDNAME="$(scutil --get LocalHostName)"
+if ! is_done hostkeys; then
+  head1 "Step 3 of 5 · Machine name and security keys"
+  read -r -p "Machine name, used to connect to it [$OLDNAME]: " NAME
+  NAME="$(printf '%s' "${NAME:-$OLDNAME}" | tr '[:upper:] _' '[:lower:]--' | tr -cd 'a-z0-9-' | sed 's/^-*//; s/-*$//' | cut -c1-63)"
+  if [ -n "$NAME" ] && [ "$NAME" != "$OLDNAME" ]; then
+    run sudo scutil --set ComputerName "$NAME"
+    run sudo scutil --set HostName "$NAME"
+    run sudo scutil --set LocalHostName "$NAME"
+    ok "Renamed to $NAME."
+  fi
+  say
+  say "Generating new SSH keys so no previous owner can impersonate this machine..."
+  # Build the new keys elsewhere, then swap them in, so SSH never runs without host keys
+  TMPK="$(mktemp -d)"; mkdir -p "$TMPK/etc/ssh"
+  if run ssh-keygen -A -f "$TMPK" >/dev/null && run sudo sh -c "chown root:wheel '$TMPK'/etc/ssh/* && mv -f '$TMPK'/etc/ssh/ssh_host_* '$SYSROOT/etc/ssh/'"; then
+    run rm -f "$HOME/.ollama/id_ed25519" "$HOME/.ollama/id_ed25519.pub"
+    run launchctl kickstart -k "gui/$(id -u)/local.ollama"
+    ok "New keys generated."
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+      echo "$OLDNAME" > "$STATE/hostkey-warning"
+    fi
+    mark hostkeys
+  else
+    err "Couldn't generate new keys. The old ones are still in place. Run first-run-setup to try again."
+  fi
+  rm -rf "$TMPK"
+fi
+NAME="$(scutil --get LocalHostName)"
+if [ -f "$STATE/hostkey-warning" ]; then
+  warn "Your computer will warn that the \"host identification has changed\" the next time you connect."
+  say  "  That's expected. Before connecting again, run this on ${b}your${rst} computer:"
+  say  "    ${b}ssh-keygen -R $(cat "$STATE/hostkey-warning").local${rst}    (or the IP address you used)"
+fi
+
+# ---------------------------------------------------------------- 4. tailscale
+if ! is_done tailscale; then
+  head1 "Step 4 of 5 · Tailscale (access from anywhere)"
+  if [[ "${SSH_CONNECTION:-}" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
+    warn "You're connected through Tailscale right now. Redoing this step drops that connection."
+    say  "Connect over your home network (ssh $USER@$NAME.local) and run:  first-run-setup --redo tailscale"
+    exit 1
+  fi
+  cat <<EOF
+Tailscale creates a private network between your devices, so you can reach
+this Mac from anywhere without exposing it to the internet. It's free for personal use.
+
+  • A login link will appear below. Open it on your phone or laptop,
+    and sign in or create an account (Google, Microsoft, GitHub, Apple, ...).
+  • This step waits until you've signed in.
+  • Then install Tailscale on the devices you'll connect from
+    (https://tailscale.com/download) and sign in with the same account.
+
+EOF
+  pause "Press Enter to get the login link..."
+  run sudo tailscale up --reset --force-reauth --hostname="$NAME" --accept-dns=true
+  if [ "$DRY_RUN" = 1 ] || tailscale status >/dev/null 2>&1; then
+    TSIP="$(tailscale ip -4 2>/dev/null | head -1)"
+    ok "Connected to Tailscale as ${b}$NAME${rst}${grn} (${TSIP:-dry-run})."
+    cat <<EOF
+
+${yel}${b}Important, do this now:${rst} by default Tailscale signs machines out after 180 days.
+  To keep this Mac connected for good:
+  open https://login.tailscale.com/admin/machines → click ⋯ next to ${b}$NAME${rst} → ${b}Disable key expiry${rst}
+
+EOF
+    pause "Press Enter once you've disabled key expiry..."
+    mark tailscale
+  else
+    err "Tailscale didn't connect. Run first-run-setup to try again."; exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------- 5. ssh key
+if ! is_done sshkey; then
+  head1 "Step 5 of 5 · SSH key (optional, recommended)"
+  say "With an SSH key you can log in without typing a password, and password logins"
+  say "can be switched off entirely, which is much safer."
+  say "On your computer, print your public key with:  ${b}cat ~/.ssh/id_ed25519.pub${rst}"
+  say "(If you don't have one, create it first with:   ${b}ssh-keygen -t ed25519${rst})"
+  say
+  read -r -p "Paste your public key (or press Enter to skip): " KEY
+  if [[ "$KEY" =~ ^(ssh-(ed25519|rsa)|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9@.-]+)\ [A-Za-z0-9+/=]+ ]]; then
+    if [ "$DRY_RUN" = 1 ]; then
+      run append-to "$HOME/.ssh/authorized_keys" "$KEY"
+    else
+      mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+      grep -qxF "$KEY" "$HOME/.ssh/authorized_keys" 2>/dev/null || printf '%s\n' "$KEY" >> "$HOME/.ssh/authorized_keys"
+      chmod 600 "$HOME/.ssh/authorized_keys"
+    fi
+    ok "Key added."
+    say
+    say "Test it: open a ${b}new${rst} terminal on your computer and connect the same way you did just now"
+    say "(e.g. ${b}ssh $USER@$NAME.local${rst}). It should log in without asking for this Mac's password."
+    [ -f "$STATE/hostkey-warning" ] && say "Remember to run ${b}ssh-keygen -R $(cat "$STATE/hostkey-warning").local${rst} first (see above)."
+    if ask_yn "Did the key login work, and do you want to switch off SSH password logins?" n; then
+      run sudo sh -c 'printf "PasswordAuthentication no\nKbdInteractiveAuthentication no\n" > "$1"' sh "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
+      ok "SSH password login disabled. Screen Sharing still works with your password, as a fallback."
+    else
+      say "Password login left on. To change this later: first-run-setup --redo sshkey"
+    fi
+  elif [ -n "$KEY" ]; then
+    warn "That doesn't look like a public key (it should start with ssh-ed25519 or ssh-rsa). Skipped."
+    say  "Add one later with: first-run-setup --redo sshkey"
+  fi
+  mark sshkey
+fi
+
+# ---------------------------------------------------------------- finish
+rm -f "$STATE/pending" "$STATE/hostkey-warning" "$HOME/Desktop/Start Here.command"
+MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"; MODEL="${MODEL:-qwen3.6:27b-mxfp8}"
+cat > "$HOME/WELCOME.txt" <<EOF
+YOUR AI MAC MINI · QUICK REFERENCE
+
+Connect from anywhere (Tailscale must be running on your device):
+  ssh $USER@$NAME
+  Screen Sharing:  vnc://$NAME   (on a Mac: Finder → Go → Connect to Server)
+On your home network you can also use $NAME.local
+
+Keep work running after you disconnect (tmux):
+  tmux new -As main         start a session, or reattach to it
+  Ctrl-b then d             detach (everything keeps running)
+
+AI coding (run inside tmux):
+  claude                    Claude Code with Anthropic's models (log in the first time)
+  claude-local              the same Claude Code, running on this Mac's model
+  Both share projects, CLAUDE.md memory and history. In a project folder,
+  run either with --continue to pick up the last session from the other.
+
+Local AI (Ollama, always running):
+  chat                      quick terminal chat with $MODEL
+  ollama list               installed models
+  ollama pull <model>       more models: https://ollama.com/library
+  API: http://localhost:11434 (OpenAI-style at /v1, Anthropic-style at /v1/messages)
+  Note: local models are much less reliable than Claude. Check important facts.
+
+MLX (Apple's ML framework):
+  mlx_lm.generate --model mlx-community/<model> --prompt "hi"
+
+The machine:
+  • Starts up by itself when power returns, and logs itself in
+  • Never sleeps; installs security updates automatically
+  • Change a setup step later:  first-run-setup --redo password|name|hostkeys|tailscale|sshkey
+
+Keep in mind:
+  • Forgot your password? Nobody can reset it remotely. With a monitor and keyboard,
+    use macOS Recovery (hold the power button at startup → Options → Utilities →
+    Terminal → resetpassword).
+  • Turning on FileVault disk encryption stops the Mac from starting up unattended
+    after a power cut (it waits for a password at the screen).
+EOF
+
+head1 "All done"
+cat <<EOF
+${grn}${b}Your Mac mini is set up and belongs to you.${rst}
+Connect from anywhere with ${b}ssh $USER@$NAME${rst} (Tailscale on). This screen appears every time you log in:
+EOF
+if [ -x "$(dirname "$0")/ai-motd" ]; then "$(dirname "$0")/ai-motd"; fi
+exit 0
