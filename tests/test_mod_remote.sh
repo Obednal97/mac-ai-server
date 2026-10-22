@@ -158,4 +158,20 @@ FAKE_TS_STATUS_RC=1 runfn "$TS" mod_check MAS_TAILSCALE=yes MAS_BREW_PREFIX="$pf
 assert_eq "$?" 0 "tailscale check uses Homebrew's tailscale"
 assert_ok "reports the brew tailscale's address" has "ok Tailscale is connected (192.0.2.9)"
 
+# --- modes: the drop-in is world-readable (like macOS's own 100-macos.conf) even under umask 077
+rm -rf "$MAS_SYSROOT/etc/ssh"; mkdir -p "$MAS_SYSROOT/etc"
+( umask 077; runfn "$REMOTE" mod_run )
+assert_eq "$(stat -f %Lp "$conf")" 644 "sshd drop-in is 0644 under umask 077"
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/etc/ssh/sshd_config.d")" 755 "sshd_config.d is 0755"
+# an earlier run left it 0600 with the right content: a re-run repairs the mode
+chmod 600 "$conf"; runfn "$REMOTE" mod_run
+assert_eq "$(stat -f %Lp "$conf")" 644 "re-run repairs a 0600 drop-in"
+# an unreadable drop-in is reported, never silently passed, and awk prints no noise
+chmod 000 "$conf"
+runfn "$REMOTE" mod_check
+assert_ok "unreadable drop-in is a fail" grep -q "^fail sshd settings file .*100-mac-ai-server.conf.* can't be read" "$OUT"
+assert_fails "no ok sshd line when a file is unreadable" grep -q '^ok sshd settings' "$OUT"
+assert_fails "no awk noise" has "awk:"
+chmod 644 "$conf"
+
 t_summary

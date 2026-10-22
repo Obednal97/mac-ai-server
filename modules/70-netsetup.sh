@@ -104,8 +104,12 @@ mod_run() {
   echo "Location permission: $st"
 
   mas_step "Network setup service (local.netsetup)"
-  sudo mkdir -p "$lib" "$(dirname "$plist")"
+  # /usr/local may not exist on a fresh Mac: every level we create (or an earlier run left 0700)
+  # must be 0755, or the user can't reach anything later installed under /usr/local.
+  mas_sudo_mkdirs "${MAS_SYSROOT:-}/usr/local" "$lib"
+  sudo mkdir -p "$(dirname "$plist")"
   sudo cp "$MAS_MOD_ROOT/netsetup/netsetupd.py" "$MAS_MOD_ROOT/netsetup/portal.html" "$lib/"
+  sudo chmod 644 "$lib/netsetupd.py" "$lib/portal.html"
   sudo chown -R root:wheel "$lib"
   _mas_ns_write_plist "$plist"
   sudo chown root:wheel "$plist" && sudo chmod 644 "$plist"

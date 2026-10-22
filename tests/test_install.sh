@@ -158,4 +158,21 @@ assert_logged '^sudo -v'
 assert_logged '^sudo -n true'
 assert_fails "terminal keepalive killed" alive "$(cat "$FIX_OUT.kapid")"
 
+# --- umask: a caller's (or our) restrictive umask must not reach root-created system paths
+mkdir -p "$T_TMP/umaskmods"
+cat > "$T_TMP/umaskmods/10-mk.sh" <<'EOS'
+mod_applies() { return 0; }
+mod_run() { sudo mkdir -p "$MAS_SYSROOT/usr/local/libexec/x"; printf 'a\n' | sudo tee "$MAS_SYSROOT/usr/local/libexec/x/f" >/dev/null; }
+mod_check() { :; }
+EOS
+rm -rf "$T_TMP/uroot" "$HOME/.mac-ai-server"
+( umask 077; MAS_SYSROOT="$T_TMP/uroot" MAS_MODULES_DIR="$T_TMP/umaskmods" run --yes )
+assert_eq "$(rc)" 0 "umask run ok"
+assert_eq "$(stat -f %Lp "$T_TMP/uroot/usr/local")" 755 "dir made by sudo mkdir in a module is 755 (not 700)"
+assert_eq "$(stat -f %Lp "$T_TMP/uroot/usr/local/libexec/x")" 755 "nested dir is 755"
+assert_eq "$(stat -f %Lp "$T_TMP/uroot/usr/local/libexec/x/f")" 644 "file made by sudo tee is 644"
+assert_eq "$(stat -f %Lp "$HOME/.mac-ai-server")" 700 "log dir stays 0700"
+assert_eq "$(stat -f %Lp "$HOME/.mac-ai-server/install.log")" 600 "log file is 0600"
+assert_fails "no global umask 077 in install.sh" grep -Eq '^[[:space:]]*umask 077[[:space:]]*$' "$INST"
+
 t_summary

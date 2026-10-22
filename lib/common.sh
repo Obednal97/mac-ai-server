@@ -53,6 +53,25 @@ mas_sudo_cleanup() {
   return 0
 }
 
+# mas_sudo_mkdirs <base> <dir>: sudo mkdir -p <dir>, then make every level from <base> down 0755
+# where it is 0700. That repairs paths an earlier run created under a restrictive umask (sudo keeps
+# the caller's umask) and leaves any other deliberate mode alone.
+mas_sudo_mkdirs() {
+  local base="$1" p="$2" levels=""
+  while :; do
+    levels="$p
+$levels"
+    [ "$p" = "$base" ] && break
+    case "$p" in "$base"/*) p="$(dirname "$p")" ;; *) break ;; esac
+  done
+  sudo mkdir -p "$2" || return 1
+  printf '%s' "$levels" | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ "$(stat -f %Lp "$p" 2>/dev/null)" = 700 ]; then sudo chmod 755 "$p"; fi
+  done
+  return 0
+}
+
 # mas_reload_agent <label> <plist>: bootout, wait until gone, then bootstrap with retries.
 mas_reload_agent() {
   local label="$1" plist="$2" d

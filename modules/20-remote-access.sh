@@ -24,10 +24,15 @@ _mas_ra_kit_disabled() { printf '%s' "${MAS_SYSROOT:-}/etc/ssh/100-ai-server.con
 # _mas_ra_bad: the effective drop-in settings, worked out the way sshd does (files in name order,
 # first value for each keyword wins, lines under a Match block ignored). Prints one line per wanted
 # setting that isn't in effect: "<Keyword> <value or unset> <file or ->". Prints nothing when all are.
+# A file this user can't read can't be checked: it is reported as "UNREADABLE - <file>", never
+# passed to awk (BSD awk stops on it and prints nothing, which would read as "all good").
 _mas_ra_bad() {
   local dir files=() f
   dir="$(_mas_ra_dir)"
-  for f in "$dir"/*; do [ -f "$f" ] && files+=("$f"); done
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    if [ -r "$f" ]; then files+=("$f"); else printf 'UNREADABLE - %s\n' "$f"; fi
+  done
   # shellcheck disable=SC2016  # awk program
   _mas_ra_want_conf | LC_ALL=C awk '
     FILENAME == "-" { want[tolower($1)] = $2; name[tolower($1)] = $1; next }
@@ -66,9 +71,11 @@ mod_run() {
     sudo mv -f "$kit" "$(_mas_ra_kit_disabled)" && echo "Moved the old kit's sshd settings aside: $(_mas_ra_kit_disabled)"
   fi
   if [ -n "$(_mas_ra_bad)" ] && [ "$(cat "$conf" 2>/dev/null)" != "$want" ]; then
-    sudo mkdir -p "$(dirname "$conf")"
+    mas_sudo_mkdirs "${MAS_SYSROOT:-}/etc/ssh" "$(dirname "$conf")"
     printf '%s\n' "$want" | sudo tee "$conf" >/dev/null
   fi
+  # World-readable like macOS's own 100-macos.conf, so the check can read it (repairs a 0600 one).
+  [ -f "$conf" ] && sudo chmod 644 "$conf"
   bad="$(_mas_ra_bad)"
   [ -z "$bad" ] || mas_warn "Another file in $(_mas_ra_dir) overrides the SSH settings (sshd uses the first value it reads): $(printf '%s' "$bad" | tr '\n' ';')"
   sudo launchctl enable system/com.apple.screensharing
@@ -97,7 +104,8 @@ mod_check() {
   if [ -z "$bad" ]; then echo "ok sshd settings in effect (no root login, keepalive)"
   else
     printf '%s\n' "$bad" | while read -r k v f; do
-      if [ "$f" = - ]; then echo "fail sshd setting $k is not set — re-run the installer: mac-ai-server install --only remote-access"
+      if [ "$k" = UNREADABLE ]; then echo "fail sshd settings file $f can't be read, so its settings can't be checked — run: sudo chmod 644 $f"
+      elif [ "$f" = - ]; then echo "fail sshd setting $k is not set — re-run the installer: mac-ai-server install --only remote-access"
       else echo "fail sshd setting $k is '$v' in $f, which sshd reads first — re-run the installer: mac-ai-server install --only remote-access (or edit that file)"; fi
     done
     rc=1

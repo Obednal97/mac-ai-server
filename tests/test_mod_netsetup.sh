@@ -89,4 +89,17 @@ rm -rf "$APP"
 runfn mod_check FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$?" 1 "check fails when app missing"
 
+# --- modes: under umask 077, root-created /usr/local dirs must stay traversable (755), files 644
+rm -rf "$MAS_SYSROOT"
+( umask 077; runfn mod_run FAKE_OUT_defaults=1 )
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/usr/local")" 755 "/usr/local is 755 under umask 077"
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/usr/local/libexec")" 755 "/usr/local/libexec is 755"
+assert_eq "$(stat -f %Lp "$LIBEXEC")" 755 "libexec/ai-netsetup is 755"
+assert_eq "$(stat -f %Lp "$LIBEXEC/netsetupd.py")" 644 "daemon script is 644"
+assert_eq "$(stat -f %Lp "$LIBEXEC/portal.html")" 644 "portal is 644"
+# an earlier umask-077 run left them 0700: a re-run repairs them
+chmod 700 "$MAS_SYSROOT/usr/local" "$MAS_SYSROOT/usr/local/libexec"
+runfn mod_run FAKE_OUT_defaults=1
+assert_eq "$(stat -f %Lp "$MAS_SYSROOT/usr/local")" 755 "re-run repairs a 0700 /usr/local"
+
 t_summary

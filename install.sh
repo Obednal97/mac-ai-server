@@ -301,9 +301,12 @@ if [ "$PLAN" = 1 ]; then
   exit $?
 fi
 
-# Real run: log everything (owner only), stdout and stderr kept apart.
-umask 077
+# Real run: log everything, stdout and stderr kept apart. Only the log is private (0700 dir, 0600
+# file). The run itself uses umask 022: sudo keeps the caller's umask, so a restrictive one would
+# leave root-created system paths (e.g. /usr/local) unreadable for the user.
+umask 022
 mkdir -p "$MAS_LOG_DIR" && chmod 700 "$MAS_LOG_DIR"
+( umask 077; : >> "$MAS_LOG_DIR/install.log" ) && chmod 600 "$MAS_LOG_DIR/install.log"
 exec > >(tee -a "$MAS_LOG_DIR/install.log") 2> >(tee -a "$MAS_LOG_DIR/install.log" >&2)
 resolve_mode run
 do_install
