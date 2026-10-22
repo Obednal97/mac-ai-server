@@ -1,0 +1,12 @@
+#!/bin/bash
+# Fake claude (its own script). Logs every call.
+# mcp list: prints $FAKE_MCP_LIST; mcp get <n>: prints $FAKE_MCP_GET;
+# FAKE_PATH_OUT: file that receives $PATH; plugin list: prints $FAKE_PLUGIN_LIST; anything else: nothing. rc = FAKE_RC (default 0).
+if [ -n "${FAKE_LOG:-}" ]; then echo "claude $*" >> "$FAKE_LOG"; fi
+[ -n "${FAKE_PATH_OUT:-}" ] && echo "$PATH" > "$FAKE_PATH_OUT"
+case "${1:-} ${2:-}" in
+  "mcp list") [ -n "${FAKE_MCP_LIST:-}" ] && printf '%s\n' "$FAKE_MCP_LIST" ;;
+  "mcp get") [ -n "${FAKE_MCP_GET:-}" ] && printf '%s\n' "$FAKE_MCP_GET" ;;
+  "plugin list") [ -n "${FAKE_PLUGIN_LIST:-}" ] && printf '%s\n' "$FAKE_PLUGIN_LIST" ;;
+esac
+exit "${FAKE_RC:-0}"
