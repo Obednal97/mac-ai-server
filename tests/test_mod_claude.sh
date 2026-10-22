@@ -7,8 +7,11 @@ trap t_teardown EXIT
 MOD="$REPO_DIR/modules/60-claude.sh"
 OUT="$T_TMP/out"
 BIN="$HOME/.local/bin"
-# A PATH without any real claude/tmux: fakes first, then system essentials only.
-SAFE_PATH="$TESTS_DIR/fakes:/usr/bin:/bin:/usr/sbin:/sbin"
+# A PATH without any real claude/tmux: a copy of the fakes minus the fake claude (tests/fakes/claude is
+# for test_mod_agent_tools.sh and would hide the "claude missing" paths here), then system essentials only.
+NOCLAUDE="$T_TMP/fakes-noclaude"
+cp -R "$TESTS_DIR/fakes" "$NOCLAUDE"; rm -f "$NOCLAUDE/claude"
+SAFE_PATH="$NOCLAUDE:/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH="$SAFE_PATH"
 export MAS_BREW_PREFIX="$T_TMP/nobrew"
 
