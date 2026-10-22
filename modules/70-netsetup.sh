@@ -34,9 +34,20 @@ _mas_ns_status() {
   echo "${st:-pending}"
 }
 
+# The source the installed app was built from. Replacing the app resets its Location permission,
+# and swiftc doesn't always produce the same binary twice, so same source means no rebuild at all.
+_mas_ns_stamp() { printf '%s' "$(_mas_ns_libexec)/wifiscan.source"; }
+_mas_ns_source_hash() { cat "$MAS_MOD_ROOT/netsetup/WifiScan/main.swift" "$MAS_MOD_ROOT/netsetup/WifiScan/Info.plist" | shasum -a 256 | cut -d' ' -f1; }
+
 _mas_ns_build_app() {
-  local app build src
+  local app build src hash
   app="$(_mas_ns_app)"; src="$MAS_MOD_ROOT/netsetup/WifiScan"
+  hash="$(_mas_ns_source_hash)"
+  if [ -x "$app/Contents/MacOS/WifiScan" ] && cmp -s "$src/Info.plist" "$app/Contents/Info.plist" \
+     && [ "$(cat "$(_mas_ns_stamp)" 2>/dev/null)" = "$hash" ]; then
+    echo "WifiScan.app unchanged (same source)"
+    return 0
+  fi
   command -v swiftc >/dev/null 2>&1 || { mas_warn "swiftc not found: the Xcode command line tools are missing. Run: xcode-select --install, then re-run the installer."; return 1; }
   build="$(mktemp -d "${TMPDIR:-/tmp}/mas-wifiscan.XXXXXX")" || return 1
   mkdir -p "$build/WifiScan.app/Contents/MacOS"
@@ -65,6 +76,8 @@ _mas_ns_build_app() {
     echo "WifiScan.app installed (new build)"
   fi
   rm -rf "$build"
+  mas_sudo_mkdirs "${MAS_SYSROOT:-}/usr/local" "$(_mas_ns_libexec)"
+  printf '%s\n' "$hash" | sudo tee "$(_mas_ns_stamp)" >/dev/null
 }
 
 _mas_ns_write_plist() {  # _mas_ns_write_plist <dest>
