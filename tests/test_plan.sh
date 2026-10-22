@@ -75,6 +75,7 @@ assert_eq "$MAS_PRIMARY_GB" "" "unknown override has no size"
 assert_eq "$MAS_FAST" "qwen3.6:35b-a3b-nvfp4" "override keeps fast model"
 MAS_MODEL="qwen3.6:27b-mxfp8"; mas_plan_model
 assert_eq "$MAS_PRIMARY_GB" "30.4" "catalogue override gets its size"
+# shellcheck disable=SC2034  # read by sourced lib/plan.sh
 MAS_MODEL=""
 
 # Every tier is complete and every tag is in the catalogue
@@ -110,11 +111,13 @@ MAS_RAM_GB=48 MAS_CHIP_GEN=5; out="$(mas_model_options)"
 assert_eq "$(printf '%s\n' "$out" | grep -cE 'q8_0|q4_K_M')" "0" "gen 5 lists no GGUF"
 assert_ok "gen 5 lists MLX" grep -q mxfp8 <<<"$out"
 assert_ok "gen 5 keeps single-format bonsai" grep -q '^bonsai-2:27b' <<<"$out"
+# shellcheck disable=SC2034  # read by sourced lib/plan.sh
 MAS_CHIP_GEN=4; out="$(mas_model_options)"
 assert_eq "$(printf '%s\n' "$out" | grep -cE 'mxfp8|nvfp4')" "0" "gen 4 lists no MLX"
 assert_eq "$(printf '%s\n' "$out" | grep "	recommended$" | cut -f1)" "qwen3.8:27b-q8_0" "gen 4 recommends GGUF"
 assert_ok "gen 4 keeps bonsai" grep -q '^bonsai-2:27b' <<<"$out"
 # under 16 GB there is nothing to offer
+# shellcheck disable=SC2034  # read by sourced lib/plan.sh
 MAS_RAM_GB=12
 assert_fails "no options under 16 GB" mas_model_options
 
