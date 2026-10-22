@@ -2,8 +2,7 @@
 # Guided permissions: macOS only lets you grant these by clicking in System Settings.
 # Opens each pane, prints "ACTION NEEDED: <what> | <where>", checks what macOS lets us check.
 # Env: MAS_MODE, MAS_MACOS, TERM_PROGRAM. Test hooks: MAS_NO_TTY (never wait for Return),
-# MAS_FDA_TEST_PATH (file read to test Full Disk Access), MAS_WIFISCAN_APP,
-# MAS_LOCATION_STATUS_CMD (command that prints the WifiScan status JSON).
+# MAS_FDA_TEST_PATH (file read to test Full Disk Access), MAS_WIFISCAN_APP.
 # Standalone: `mac-ai-server permissions` sources this file and calls mod_run, then mod_check.
 #
 # Pane URLs (scheme x-apple.systempreferences works on macOS 13-27):
@@ -47,20 +46,16 @@ _mas_pm_fda_ok() { head -c 1 "$(_mas_pm_fda_path)" >/dev/null 2>&1; }
 # Prints the WifiScan status (authorized, denied, ...), or nothing if unknown.
 _mas_pm_location_status() {
   local app out json
-  if [ -n "${MAS_LOCATION_STATUS_CMD:-}" ]; then
-    json="$(eval "$MAS_LOCATION_STATUS_CMD" 2>/dev/null)"
-  else
-    app="${MAS_WIFISCAN_APP:-/Applications/WifiScan.app}"
-    [ -d "$app" ] || return 0
-    out="$(mktemp "${TMPDIR:-/tmp}/mas-wifiscan.XXXXXX")" || return 0
-    open -W -n -g -a "$app" --args --status --out "$out" >/dev/null 2>&1
-    json="$(cat "$out" 2>/dev/null)"
-    rm -f "$out"
-  fi
+  app="${MAS_WIFISCAN_APP:-/Applications/WifiScan.app}"
+  [ -d "$app" ] || return 0
+  out="$(mktemp "${TMPDIR:-/tmp}/mas-wifiscan.XXXXXX")" || return 0
+  open -W -n -g -a "$app" --args --status --out "$out" >/dev/null 2>&1
+  json="$(cat "$out" 2>/dev/null)"
+  rm -f "$out"
   printf '%s' "$json" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 }
 
-_mas_pm_wifiscan_installed() { [ -n "${MAS_LOCATION_STATUS_CMD:-}" ] || [ -d "${MAS_WIFISCAN_APP:-/Applications/WifiScan.app}" ]; }
+_mas_pm_wifiscan_installed() { [ -d "${MAS_WIFISCAN_APP:-/Applications/WifiScan.app}" ]; }
 
 # _mas_pm_step <pane url> <what> <where>: open the pane, say what to switch, wait for Return if a person is there.
 _mas_pm_step() {
@@ -120,7 +115,8 @@ mod_check() {
   if _mas_pm_wifiscan_installed; then
     st="$(_mas_pm_location_status)"
     if [ "$st" = authorized ]; then echo "ok Location Services is on for Wi-Fi Setup"
-    else echo "fail Location Services for Wi-Fi Setup is '${st:-unknown}' — System Settings > Privacy & Security > Location Services, switch on Wi-Fi Setup"; rc=1; fi
+    elif [ -z "$st" ]; then echo "info Location for Wi-Fi Setup — couldn't ask WifiScan; check System Settings > Privacy & Security > Location Services"
+    else echo "fail Location Services for Wi-Fi Setup is '$st' — System Settings > Privacy & Security > Location Services, switch on Wi-Fi Setup"; rc=1; fi
   else
     echo "info Location Services for Wi-Fi Setup — can't be checked yet: WifiScan is not installed"
   fi

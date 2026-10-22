@@ -7,6 +7,7 @@ trap t_teardown EXIT
 MOD="$REPO_DIR/modules/95-permissions.sh"
 OUT="$T_TMP/out"
 export MAS_NO_TTY=1 MAS_WIFISCAN_APP="$T_TMP/none/WifiScan.app"
+APP="$T_TMP/WifiScan.app"; mkdir -p "$APP"   # an installed WifiScan; its status comes from the fake open
 export MAS_FDA_TEST_PATH="$T_TMP/denied"   # missing = not readable
 echo x > "$T_TMP/readable"
 
@@ -70,38 +71,43 @@ assert_eq "$(actions)" 6 "laptop-server on macOS 26.4: charge limit"
 
 # re-run: granted items are not asked again
 echo ok > "$T_TMP/readable"
-runfn mod_run MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_LOCATION_STATUS_CMD="echo '{\"status\":\"authorized\"}'"
+runfn mod_run MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP"
 assert_eq "$(actions)" 2 "granted FDA and Location are skipped"
 assert_not_logged 'Privacy_AllFiles'
 
 # mod_check: Full Disk Access
-runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_LOCATION_STATUS_CMD="echo '{\"status\":\"authorized\"}'"
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP"
 assert_eq "$?" 0 "check passes when FDA readable and location authorised"
 assert_ok "FDA ok" has '^ok .*Full Disk Access'
 assert_ok "Location ok" has '^ok .*Location'
 assert_ok "manual items are info" has "^info .*App Management.*can't be checked automatically"
 assert_ok "remote login info" has "^info .*Remote Login.*can't be checked automatically"
-runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/denied" TERM_PROGRAM=iTerm.app MAS_LOCATION_STATUS_CMD="echo '{\"status\":\"authorized\"}'"
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/denied" TERM_PROGRAM=iTerm.app MAS_WIFISCAN_APP="$APP"
 assert_eq "$?" 1 "check fails when FDA unreadable"
 assert_ok "FDA fail with fix" has '^fail .*Full Disk Access.*iTerm.*Privacy & Security'
 assert_ok "restart hint" has 'restart'
 
 # mod_check: Location
-runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_LOCATION_STATUS_CMD="echo '{\"status\":\"denied\"}'"
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP" FAKE_WIFISCAN_STATUS=denied
 assert_eq "$?" 1 "check fails when location denied"
 assert_ok "Location fail with fix" has '^fail .*Location.*Wi-Fi Setup'
 runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable"
 assert_eq "$?" 0 "WifiScan not installed is not a failure"
 assert_ok "WifiScan missing is info" has '^info .*Location.*WifiScan'
 # default probe goes through open -W -g -n -a
-mkdir -p "$T_TMP/WifiScan.app"
-runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$T_TMP/WifiScan.app"
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP"
 rc=$?
-assert_logged "^open -W -n -g -a $T_TMP/WifiScan.app --args --status --out "
-assert_eq "$rc" 1 "no status reported = fail"
+assert_logged "^open -W -n -g -a $APP --args --status --out "
+assert_eq "$rc" 0 "default fake open reports authorized"
+assert_ok "authorized is ok" has '^ok .*Location'
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP" FAKE_WIFISCAN_STATUS=none
+assert_eq "$?" 0 "no status reported is not a failure"
+assert_ok "no status is info" has '^info .*Location.*couldn.t ask WifiScan'
+runfn mod_check MAS_MODE=desktop MAS_LAPTOP=0 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP" FAKE_WIFISCAN_STATUS=notDetermined
+assert_eq "$?" 1 "notDetermined fails"
 
 # laptop checks list laptop rows as info
-runfn mod_check MAS_MODE=laptop-server MAS_LAPTOP=1 MAS_MACOS=27.0.1 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_LOCATION_STATUS_CMD="echo '{\"status\":\"authorized\"}'"
+runfn mod_check MAS_MODE=laptop-server MAS_LAPTOP=1 MAS_MACOS=27.0.1 MAS_FDA_TEST_PATH="$T_TMP/readable" MAS_WIFISCAN_APP="$APP"
 assert_ok "accessories info" has "^info .*Accessories.*can't be checked automatically"
 assert_ok "charge limit info" has "^info .*Charge Limit.*can't be checked automatically"
 
