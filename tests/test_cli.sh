@@ -184,10 +184,12 @@ case "${1:-}" in -*|"") exec /usr/bin/id "$@" ;; esac
 [ -e "$FAKE_UD/$1" ] && { echo "uid=502($1)"; exit 0; }
 exec /usr/bin/id "$@"
 FAKE
-# dscl: with only a datasource it reads commands on stdin (recorded, never logged), like the real one
+# dscl: with only a datasource it reads commands on stdin (recorded, never logged), like the real one,
+# which also warns about a terminal type it doesn't know unless TERM=dumb
 cat > "$FB/dscl" <<'FAKE'
 #!/bin/bash
 if [ $# -eq 1 ]; then
+  [ "${TERM:-}" = dumb ] || echo 'No entry for terminal type "xterm-ghostty"; using dumb terminal settings.'
   while IFS= read -r l; do printf '%s\n' "$l" >> "$FAKE_DSCL_STDIN"; echo "stdin:dscl ${l%% *}" >> "$FAKE_LOG"; done
   echo "${FAKE_DSCL_REPLY:-Goodbye}"; exit 0
 fi
@@ -243,6 +245,18 @@ run users card kim --link nope
 assert_eq "$?" 1 "a non-link is refused"
 run users card nobody-here
 assert_eq "$?" 1 "no card for an unknown name"
+# the shared plugins: the machine-wide settings only switch them on, so each new person gets a copy
+PR="$T_TMP/pluginroot"; mkdir -p "$PR/Library/Application Support/ClaudeCode/managed-settings.d" "$T_TMP/piahome/.local/bin"
+printf '%s\n' '{"enabledPlugins": {"superpowers@anthropic-plugin-directory": true, "off@x": false, "tool@someone-gh": true}}' \
+  > "$PR/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
+ln -sf "$TESTS_DIR/fakes/claude" "$T_TMP/piahome/.local/bin/claude"
+MAS_SYSROOT="$PR" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/piahome" MAS_MULTIUSER=yes run users add pia </dev/null
+assert_eq "$?" 0 "users add with shared plugins ok"
+assert_logged '^claude plugin install superpowers@anthropic-plugin-directory$'
+assert_logged '^claude plugin install tool@someone-gh$'
+assert_not_logged 'plugin install off@x'
+FAKE_RC=1 MAS_SYSROOT="$PR" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/piahome" MAS_MULTIUSER=yes run users add pib </dev/null
+assert_ok "a plugin that won't install is named, with the fix" has "Couldn't install these shared plugins for pib: superpowers@anthropic-plugin-directory tool@someone-gh"
 # a failed password set stops with the fix
 FAKE_DSCL_REPLY="DS Error: -14009" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/xhome" MAS_MULTIUSER=yes run users add xan </dev/null
 assert_eq "$?" 1 "password failure stops"
@@ -288,6 +302,8 @@ assert_not_logged 'deleteUser'
 FAKE_GROUP_MEMBER_RC=67 run users remove sam <<< "sam"
 assert_eq "$?" 0 "remove confirmed"
 assert_logged '^sysadminctl -deleteUser sam'
+assert_logged '^dseditgroup -o edit -d sam -t user com.apple.access_ssh'
+assert_logged '^dseditgroup -o edit -d sam -t user com.apple.access_screensharing'
 assert_fails "info pack deleted" test -e "$PACKS/sam"
 assert_ok "reminds to stop the Tailscale share" has "stop sharing it"
 FAKE_GROUP_MEMBER_RC=67 MAS_WIREGUARD=yes run users remove wes <<< "wes"

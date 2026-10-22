@@ -26,6 +26,14 @@ mod_run() {
   fi
   mas_step "Multi-user: share your Claude Code plugins and personal skills with every account"
   _mas_mu_share || { mas_warn "Couldn't share the Claude Code plugins and skills."; return 1; }
+  # The shared settings switch the plugins on; each person still needs their own copy of them.
+  local u h done=""
+  for u in $(dscl . -list /Users UniqueID 2>/dev/null | awk -v me="$(id -un)" '$2 >= 501 && $1 != me {print $1}'); do
+    h="$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    [ -n "$h" ] && sudo test -x "$h/.local/bin/claude" || continue
+    mas_mu_install_plugins "$u" "$h" && done="$done $u"
+  done
+  [ -z "$done" ] || echo "Shared plugins installed for:$done"
   echo "Add someone with: mac-ai-server users add <name>"
 }
 

@@ -369,8 +369,9 @@ users_add() {
   throw=""
   id "$name" >/dev/null 2>&1 || mas_die "macOS didn't create the account $name."
   pw="$(temp_pw)"
-  # As root, dscl sets a password without the old one. It answers just "Goodbye" when it worked.
-  out="$(printf 'passwd %s %s\n' "$(dq "/Users/$name")" "$(dq "$pw")" | sudo dscl . 2>&1)"
+  # As root, dscl sets a password without the old one. It answers just "Goodbye" when it worked
+  # (TERM=dumb: with a terminal type it doesn't know, like xterm-ghostty, it also prints a warning).
+  out="$(printf 'passwd %s %s\n' "$(dq "/Users/$name")" "$(dq "$pw")" | sudo env TERM=dumb dscl . 2>&1)"
   [ "$out" = Goodbye ] || mas_die "Created $name, but couldn't set their password. Set one with: sudo passwd $name"
   sudo createhomedir -c -u "$name" >/dev/null 2>&1 || true
   h="$(user_home "$name")"
@@ -381,6 +382,7 @@ users_add() {
     dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -a "$name" -t user "$g"
   done
   echo "Installing Claude Code for $name..."
+  cd / || true   # their shell starts here: your home folder is private to them
   # shellcheck disable=SC2016  # runs in the new account's own shell
   sudo -u "$name" -H /bin/bash -c '
     cd "$HOME" || exit 1
@@ -401,6 +403,7 @@ if [ -t 1 ]; then
 fi
 BLOCK
   '
+  mas_mu_install_plugins "$name" "$h" || true
 
   # The info pack: card, plus their WireGuard file and QR code. Private to you; send it privately.
   d="$USERS_DIR/$name"; mkdir -p "$d" && chmod 700 "$USERS_DIR" "$d"
@@ -443,7 +446,7 @@ users_card() {
 }
 
 users_remove() {
-  local name="${1:-}" ok method
+  local name="${1:-}" ok method out g
   valid_user "$name" || mas_die "Say which account to remove. Like: mac-ai-server users remove sam"
   people | grep -qx "$name" || mas_die "There's no person's account called $name (system accounts can't be removed here)."
   [ "$name" = "$(id -un)" ] && mas_die "That's your own account."
@@ -454,7 +457,13 @@ users_remove() {
   method="$(cat "$USERS_DIR/$name/method" 2>/dev/null)"
   # Revoke a WireGuard key whenever there is one, info pack or not
   mas_wg_remove_peer "$name" || mas_die "Couldn't revoke $name's WireGuard key, so nothing else was changed."
-  sudo sysadminctl -deleteUser "$name" || mas_die "Couldn't remove $name."
+  # sysadminctl leaves the name in these groups, which would let a later account of that name in
+  for g in com.apple.access_ssh com.apple.access_screensharing; do
+    dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -d "$name" -t user "$g" >/dev/null 2>&1
+  done
+  # sysadminctl logs each step to stderr; only shown when it fails
+  out="$(sudo sysadminctl -deleteUser "$name" 2>&1)"
+  if id "$name" >/dev/null 2>&1; then printf '%s\n' "$out" >&2; mas_die "Couldn't remove $name."; fi
   rm -rf "${USERS_DIR:?}/$name"
   echo "Removed $name."
   [ "$method" = wireguard ] || echo "If you shared this Mac with them in Tailscale, also stop sharing it: login.tailscale.com/admin/machines"

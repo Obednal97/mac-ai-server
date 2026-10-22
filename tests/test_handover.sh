@@ -24,12 +24,14 @@ OUT="$T_TMP/out"
 # ---------------------------------------------------------------- smart wrappers (test-local)
 # dscl: argv is logged by the shared fake. Keeps the account password in $PW_STATE. In
 # interactive mode (one argument) it reads commands from stdin, records them in $STDIN_LOG and
-# logs only the verb ("stdin:dscl passwd") to FAKE_LOG, never the secrets.
+# logs only the verb ("stdin:dscl passwd") to FAKE_LOG, never the secrets. Like the real one, it
+# warns about a terminal type it has no entry for (xterm-ghostty, say) unless TERM=dumb.
 cat > "$W/dscl" <<'EOF'
 #!/bin/bash
 "$FAKES/dscl" "$@" >/dev/null
 cur="$(cat "$PW_STATE" 2>/dev/null)"
 if [ $# -eq 1 ]; then
+  [ "${TERM:-}" = dumb ] || echo 'No entry for terminal type "xterm-ghostty"; using dumb terminal settings.'
   fail=0
   while IFS= read -r line; do
     printf '%s\n' "$line" >> "$STDIN_LOG"
