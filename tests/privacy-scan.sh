@@ -7,7 +7,8 @@
 #   - $HOME/.mac-ai-server-private-blocklist (one case-insensitive fixed string
 #     per line, '#' comments allowed) is used when present and --generic is not
 #     given. It lives outside the repo and is never copied in.
-# Allowed on purpose (not matched by any pattern): 172.20.10.x, RFC 5737 ranges,
+# Allowed on purpose: the URL github.com/Obednal97/claude-statusline-kit (owner-approved; any other
+# use of the username is still flagged by the blocklist). Also not matched by any pattern): 172.20.10.x, RFC 5737 ranges,
 # 192.168.2.1, noreply addresses such as noreply@anthropic.com, shell-variable users
 # ($VAR@host) and <user>@<host>.local SSH targets.
 GENERIC_ONLY=0
@@ -15,6 +16,8 @@ if [ "${1:-}" = "--generic" ]; then GENERIC_ONLY=1; shift; fi
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT" || exit 2
 
+# Split so this file does not contain the name it exempts.
+KIT_URL='github[.]com/Obed''nal97/claude-statusline-kit'
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/mas-scan.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 # Patterns are written so their own source text does not match them.
@@ -42,7 +45,9 @@ scan_stream() {
     "$TMP/in" > "$TMP/in.mail"
   grep -noE "$EMAIL" "$TMP/in.mail" | grep -viE '^[0-9]+:noreply@anthropic\.com$|@users\.noreply\.github\.com$' | report "$1" email
   if [ -s "$TMP/bl" ]; then
-    grep -niF -f "$TMP/bl" "$TMP/in" | report "$1" blocklist
+    # The one approved repository URL is not personal data: drop exactly that, nothing else.
+    sed -E "s#(^|[^A-Za-z0-9.-])$KIT_URL([^A-Za-z0-9_-]|\$)#\\1\\2#g" "$TMP/in" > "$TMP/in.bl"
+    grep -niF -f "$TMP/bl" "$TMP/in.bl" | report "$1" blocklist
   fi
 }
 

@@ -76,6 +76,16 @@ downloaded_models() { ollama list 2>/dev/null | awk 'NR>1{print $1}'; }
 have_model() { downloaded_models | grep -Fxq "$1"; }
 
 # ---------------------------------------------------------------- commands
+# Refresh the optional status line kit when it was installed. A failure only warns.
+update_statusline() {
+  local kit="$HOME/claude-statusline-kit"
+  [ -f "$kit/update.sh" ] || return 0
+  echo "Updating the Claude Code status line..."
+  PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH" /bin/bash "$kit/update.sh" \
+    || echo "The status line update didn't work. Try: mac-ai-server install --only statusline" >&2
+  return 0
+}
+
 cmd_update() {
   local cur rec
   if ! git -C "$MAS_ROOT" pull --ff-only; then
@@ -91,6 +101,7 @@ cmd_update() {
   else
     "$MAS_INSTALL_SH" --yes || return 1
   fi
+  update_statusline
   load_hw
   rec="$( MAS_MODEL=""; mas_plan_model >/dev/null 2>&1 && echo "$MAS_PRIMARY" )"
   if [ -z "$MAS_USER_MODEL" ] && [ -n "$cur" ] && [ -n "$rec" ] && [ "$cur" != "$rec" ]; then

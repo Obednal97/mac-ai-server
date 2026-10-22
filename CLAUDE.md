@@ -121,7 +121,7 @@ Also cover the download size and the time:
 
 ## Step 4: ask the questions
 
-Ask these one at a time. Each one has a default; if the user says "just use the defaults", use them all. Write the answers to `~/.mac-ai-server/config.env` (see 4k).
+Ask these one at a time. Each one has a default; if the user says "just use the defaults", use them all. Write the answers to `~/.mac-ai-server/config.env` (see 4l).
 
 ### 4a. AI model (default: the recommendation)
 
@@ -191,7 +191,23 @@ Save `MAS_TAILSCALE=yes` or `no`. Without it, the Mac is reachable only on the h
   - **Their own SearXNG server:** set `MAS_SEARCH=searxng` and `MAS_SEARXNG_URL=<its address>`.
 - See `docs/agent-tools.md`.
 
-### 4f. Developer tools (default list, editable)
+### 4f. Status line (default: yes)
+
+First show the preview, exactly as it appears in the plan (`./install.sh --plan` prints it under "Here's how the Claude Code status line looks:"). Then explain each row in plain words:
+
+> - **Row 1, money:** what this session has cost, then today, this week and this month. On a Pro or Max plan it also shows how much of your 5-hour and weekly allowance is used, and when it resets.
+> - **Row 2, model and context:** which model is answering, how full its memory (the context window) is, and how long the session has run.
+> - **Row 3, git:** the project, the branch and any open pull request, plus uncommitted changes. It disappears outside a git project.
+> - **Row 4, account:** which Claude account you're logged in as.
+>
+> Want it on the bottom of every Claude Code session? It's a free add-on called claude-statusline-kit."
+
+- Save `MAS_STATUSLINE=yes` or `no`.
+- Mention only if relevant: when you use `claude-local`, the kit's local-model support can show that the session isn't using the Claude account, with a $0 cost. That depends on the kit's version, so don't promise exact wording.
+- Installed into `~/claude-statusline-kit`; `mac-ai-server update` refreshes it. The optional account-rotation tool (`rclaude`) is not installed.
+- See `docs/statusline.md`.
+
+### 4g. Developer tools (default list, editable)
 
 > "I'll also install some common developer tools: **node, pnpm, uv, git, gh, jq, ripgrep**. Want to add or drop any? Popular extras are bun, go, rust and python@3.13."
 
@@ -199,7 +215,7 @@ Save `MAS_TAILSCALE=yes` or `no`. Without it, the Mac is reachable only on the h
 - An empty value (`MAS_DEV_TOOLS=""`) means none. tmux, mosh and htop are always installed.
 - They can change the list later with `mac-ai-server tools add <name>` or `tools remove <name>`.
 
-### 4g. Agent mode (default: no)
+### 4h. Agent mode (default: no)
 
 Explain the risk plainly:
 
@@ -213,14 +229,14 @@ Save `MAS_AGENT_MODE=no` (or `yes` only if they clearly want it).
 
 To turn it off later: set `MAS_AGENT_MODE=no` in `config.env` and run `mac-ai-server install --only agent-mode` (admin password). `doctor` reports `ok agent mode is off`, or a `fail` line while it's still on.
 
-### 4h. Handover support (default: no)
+### 4i. Handover support (default: no)
 
 > "Are you building this Mac for **someone else**? If so, there's a handover tool that later signs you out and deletes your data (logins, browser data, saved Wi-Fi, your files; `docs/handover.md` has the exact list), and gives the new owner a setup card and a guided first login. Most people don't need it."
 
 - Save `MAS_HANDOVER=no` or `yes`.
 - If yes, point them to `docs/handover.md` for later. Don't run anything for it now.
 
-### 4i. "About me" memory starter (optional; default: skip)
+### 4j. "About me" memory starter (optional; default: skip)
 
 > "Optional: Claude Code can remember a few things about you in every project, with both `claude` and `claude-local`. Would you like to tell me your name, what you mostly do (e.g. 'I build websites', 'I'm learning Python') and how you like answers (short, detailed, with examples)? Or skip it."
 
@@ -238,7 +254,7 @@ If they answer:
 
 This is local memory. See `docs/memory.md`. It's separate from the Claude app's memory.
 
-### 4j. Admin rights (default: Terminal)
+### 4k. Admin rights (default: Terminal)
 
 > "The install needs your Mac's admin password, the one you log in with. Two ways:
 > 1. **You type it yourself** (recommended). I'll give you one command to paste into Terminal, and you type the password there. I never see it.
@@ -254,7 +270,7 @@ If they pick option 2, give this warning **before** they type anything:
 
 Don't save this choice in `config.env`. Option 2 is passed for a single run only (see step 5B). Saving `MAS_SUDO=askpass` would make every later update expect a password file.
 
-### 4k. Write the config
+### 4l. Write the config
 
 **If `~/.mac-ai-server/config.env` already exists** (an earlier install), read it first. For each value in it, keep it or ask the user about it, and tell them what was there. Never overwrite the file blindly; change only the lines that need changing.
 
@@ -270,6 +286,7 @@ Example `~/.mac-ai-server/config.env` for a desktop with all defaults:
 MAS_HOSTNAME=ai-mini
 MAS_TAILSCALE=yes
 MAS_AGENT_TOOLS=yes
+MAS_STATUSLINE=yes
 MAS_DEV_TOOLS="node pnpm uv git gh jq ripgrep"
 MAS_AGENT_MODE=no
 MAS_HANDOVER=no
@@ -316,7 +333,7 @@ Then follow the log, as described in step 6.
 
 ### 5B. Opt-in: Claude runs it with the password
 
-Only after the warning in 4j, and only if they typed the password in this conversation:
+Only after the warning in 4k, and only if they typed the password in this conversation:
 
 1. **Make a private folder** and remember the printed path:
 
@@ -455,7 +472,7 @@ Some of these need the admin password. Without agent mode, Claude's shell can't 
 | `mac-ai-server models remove <tag>` | no | Deletes a downloaded model (not the one in use). |
 | `mac-ai-server tools` / `tools add <name>` / `tools remove <name>` | add: yes | Developer tools. `remove` only takes it off the list and says so; it doesn't uninstall it (`brew uninstall <name>` does). |
 | `mac-ai-server permissions` | no | The System Settings walk-through again. |
-| `mac-ai-server install --plan` / `install --only <module>` | `--plan`: no; others: yes | Re-run all or part of the installer. Module names: power, remote-access, homebrew, tailscale, ollama, models, claude, agent-tools, netsetup, tuning, agent-mode, permissions. |
+| `mac-ai-server install --plan` / `install --only <module>` | `--plan`: no; others: yes | Re-run all or part of the installer. Module names: power, remote-access, homebrew, tailscale, ollama, models, claude, agent-tools, statusline, netsetup, tuning, agent-mode, permissions. |
 | `mac-ai-server handover dry-run` / `phase1` / `phase2` / `local` | yes | Handover (see `docs/handover.md`). **Never run `phase2` unless the user explicitly asked for it.** |
 
 If the user's shell doesn't find `mac-ai-server`, use `~/mac-ai-server/mac-ai-server`, or open a new Terminal window.
@@ -469,5 +486,5 @@ If the user's shell doesn't find `mac-ai-server`, use `~/mac-ai-server/mac-ai-se
   - `guide.md`: the full walk-through;
   - `troubleshooting.md`: symptoms and fixes;
   - `models.md`: which model and why;
-  - `macbooks.md`, `remote-access.md`, `network-setup.md`, `handover.md`, `agent-tools.md`, `memory.md`;
+  - `macbooks.md`, `remote-access.md`, `network-setup.md`, `handover.md`, `agent-tools.md`, `statusline.md`, `memory.md`;
   - `decisions-and-gotchas.md`: why things are built this way.

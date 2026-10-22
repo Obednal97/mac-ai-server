@@ -297,6 +297,7 @@ mas_plan_model || mas_die "Couldn't work out which AI model fits this Mac."
 if [ "$PLAN" = 1 ]; then
   resolve_mode plan
   print_plan
+  if [ "${MAS_STATUSLINE:-yes}" = yes ]; then echo; print_statusline_preview; fi
   [ "$MAS_DISK_OK" = 1 ]
   exit $?
 fi

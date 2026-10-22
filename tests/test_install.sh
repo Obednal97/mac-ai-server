@@ -27,6 +27,10 @@ assert_ok "plan recommends model" has_out "qwen3.8:27b-mxfp8"
 assert_ok "plan lists options" has_out "Other models that fit this Mac:"
 assert_ok "plan shows download" has_out "Total download"
 assert_ok "plan checks disk" has_out "Disk space"
+assert_ok "plan shows the status line preview" has_out "Here's how the Claude Code status line looks:"
+MAS_STATUSLINE=no run --plan
+assert_fails "no preview when MAS_STATUSLINE=no" has_out "status line looks"
+run --plan
 assert_not_logged '^sudo'
 assert_ok "download counts primary only" has_out "about 31.7 GB"
 assert_ok "48 GB note: measured M5 Pro speed" has_out "(about 21 on an M5 Pro)"

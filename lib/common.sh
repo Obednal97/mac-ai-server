@@ -90,3 +90,16 @@ mas_reload_agent() {
   mas_warn "Couldn't load $label. Try: launchctl bootstrap $d $plist"
   return 1
 }
+
+# Shown by `install.sh --plan` (and by Claude before it asks about the status line) when
+# MAS_STATUSLINE=yes. The sample uses placeholders, not real figures.
+print_statusline_preview() {
+  echo "Here's how the Claude Code status line looks:"
+  echo
+  cat <<'PREVIEW'
+Cost: $6.50 | Day: $18.40 | Wk: $92.10 | Mo: $412.75 | 5h: 62% ↻2h09m | 7d: 41% ↻Fri
+Model: Opus 5.5 · xhigh ⚡fast | Ctx: 24.3% (243k) | Session: 1h 12m
+claude-statusline-kit | ⎇ main | PR #42 OPEN | (+14,-3)
+👤 your-claude-account
+PREVIEW
+}

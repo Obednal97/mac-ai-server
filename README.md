@@ -21,6 +21,7 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
   - A Mac mini or Mac Studio never sleeps, restarts by itself after a power cut and logs itself back in. (MacBooks work differently; see [docs/macbooks.md](docs/macbooks.md).)
   - Every Mac installs security updates automatically.
 - **Agent tools.** Web search, a web page reader and a hidden browser work even with the local model, plus three helpful Claude Code plugins.
+- **Status line.** An optional bar at the bottom of Claude Code showing cost, context, git and account, from [claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit).
 - **Phone Wi-Fi setup.** Moved the Mac somewhere new, with no screen? Plug in your phone and pick the Wi-Fi from a web page.
 - **One everyday command:** `mac-ai-server`, to update, check, or switch models.
 
@@ -159,6 +160,7 @@ mac-ai-server help                 Show this list
 - **[MacBooks](docs/macbooks.md):** daily-laptop and laptop-as-server modes.
 - **[Remote access](docs/remote-access.md):** Tailscale, SSH, Screen Sharing and Remote Control.
 - **[Agent tools](docs/agent-tools.md):** web search, web reading, the browser and plugins.
+- **[Status line](docs/statusline.md):** the optional spend, context, git and account display, from claude-statusline-kit.
 - **[Memory](docs/memory.md):** what Claude Code remembers, and where.
 - **[Phone Wi-Fi setup](docs/network-setup.md):** joining a new Wi-Fi network with your phone.
 - **[Handover](docs/handover.md):** building a Mac for someone else.

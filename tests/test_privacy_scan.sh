@@ -56,6 +56,23 @@ printf '1+x@users.noreply.github.com\n' > "$R/ok.txt"
 assert_ok "noreply github allowed" bash "$SCAN" "$R"
 git -C "$R" rm -qf ok.txt
 
+U="Obed""nal97"
+# the approved kit URL is allowed; every other use of the name is still flagged
+printf '%s\n' "$U" > "$HOME/.mac-ai-server-private-blocklist"
+R3="$T_TMP/repo3"; mkdir -p "$R3"; git -C "$R3" init -q
+git -C "$R3" config user.name t; git -C "$R3" config user.email t@x
+printf "git clone https://github.com/${U}/claude-statusline-kit.git\nsee (github.com/${U}/claude-statusline-kit/pull/2)\n" > "$R3/k.txt"
+git -C "$R3" add k.txt; git -C "$R3" commit -qm "kit url"
+assert_ok "kit URL allowlisted" bash "$SCAN" "$R3"
+for bad in "github.com/${U}/other-repo" "by ${U} here" "github.com/${U}/claude-statusline-kit-evil" "x.github.com/${U}/claude-statusline-kit" "${U}/claude-statusline-kit"; do
+  printf '%s\n' "$bad" > "$R3/bad.txt"; git -C "$R3" add bad.txt
+  assert_fails "still flagged: $bad" bash "$SCAN" "$R3"
+done
+git -C "$R3" rm -qf bad.txt
+printf "ok github.com/${U}/claude-statusline-kit and ${U} too\n" > "$R3/bad.txt"; git -C "$R3" add bad.txt
+assert_fails "kit URL does not hide a second mention on the same line" bash "$SCAN" "$R3"
+rm "$HOME/.mac-ai-server-private-blocklist"
+
 # CRLF blocklist is handled
 printf 'zzq-secret\r\n' > "$HOME/.mac-ai-server-private-blocklist"
 printf 'has zzq-secret\n' > "$R/crlf.txt"; git -C "$R" add crlf.txt

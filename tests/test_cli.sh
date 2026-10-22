@@ -39,6 +39,17 @@ assert_logged '^git -C .* pull --ff-only'
 assert_logged "^install.sh --yes MODEL=old:7b"
 assert_not_logged '^ollama pull'
 assert_ok "suggestion" has "Recommended model changed: old:7b → $REC. Run: mac-ai-server models default $REC"
+assert_not_logged 'update.sh'
+# status line kit present: its update.sh runs (fake kit); a failure only warns
+mkdir -p "$HOME/claude-statusline-kit"
+printf '#!/bin/bash\necho "kit update.sh" >> "$FAKE_LOG"\nexit "${FAKE_KIT_RC:-0}"\n' > "$HOME/claude-statusline-kit/update.sh"
+run update
+assert_eq "$?" 0 "update ok with the status line kit"
+assert_logged '^kit update.sh$'
+FAKE_KIT_RC=1 run update
+assert_eq "$?" 0 "kit update failure doesn't fail update"
+assert_ok "kit failure explained" has "status line update didn't work"
+rm -rf "$HOME/claude-statusline-kit"
 # git fails: stop, plain message, no install
 FAKE_GIT_RC=1 run update
 assert_eq "$?" 1 "update stops when git fails"
