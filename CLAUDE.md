@@ -67,7 +67,7 @@ The clone must be at `~/mac-ai-server`, because `mac-ai-server update` uses it.
 cd ~/mac-ai-server && ./install.sh --plan
 ```
 
-This only looks and prints. It changes nothing and doesn't need the password. On the reference Mac it prints:
+This only looks and prints. It changes nothing and doesn't need the password. On a fresh Mac mini with an M5 Pro and 48 GB it prints:
 
 ```
 This is what the installer will do on this Mac.
@@ -115,7 +115,7 @@ Disk space: 316 GB free, about 42 GB needed. That's enough.
 - **A short permissions walk-through** in System Settings.
 
 Also cover the download size and the time:
-- **Download:** read the size off the "Total download" line.
+- **Download:** read the size off the "Total download" line. If the model is already there, it says `none for AI models`.
 - **Time:** say "about 15 minutes of setup, plus the download". On a typical home connection a 30 GB model takes 30 to 90 minutes.
 
 ## Step 4: ask the questions
