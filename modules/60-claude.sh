@@ -15,9 +15,16 @@ _mas_cl_zprofile_count() { grep -cE 'ai-motd|# mac-ai-server: ssh' "$HOME/.zprof
 # Escape a value for the replacement side of sed (& | \).
 _mas_cl_esc() { printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'; }
 
-# _mas_cl_put <src> <dest>: copy only when different. Scripts like claude-remote-loop may be running,
-# and bash reads a running script as it goes, so rewriting an identical file is not harmless.
-_mas_cl_put() { cmp -s "$1" "$2" || cp "$1" "$2"; }
+# _mas_cl_put <src> <dest>: install as mode 755, rewriting only when the content differs. Scripts like
+# claude-remote-loop may be running and bash reads a running script as it goes, so a changed file is
+# written to a temp file in the same folder and renamed over the old one (the old one stays intact).
+_mas_cl_put() {
+  local t
+  if cmp -s "$1" "$2"; then chmod 755 "$2"; return; fi
+  t="$(mktemp "$(dirname "$2")/.mas-put.XXXXXX")" || return 1
+  if cp "$1" "$t" && chmod 755 "$t" && mv -f "$t" "$2"; then return 0; fi
+  rm -f "$t"; return 1
+}
 
 mod_applies() { true; }
 
@@ -52,7 +59,6 @@ mod_run() {
   _mas_cl_put "$tmp" "$bin/chat"
   # The everyday command: ~/.local/bin/mac-ai-server -> this checkout's mac-ai-server.
   [ -f "$MAS_MOD_ROOT/mac-ai-server" ] && ln -sfn "$MAS_MOD_ROOT/mac-ai-server" "$bin/mac-ai-server"
-  chmod +x "$bin/ai-motd" "$bin/claude-remote-loop" "$bin/ai-tmux-start" "$bin/claude-local" "$bin/chat"
 
   if [ -f "$HOME/.tmux.conf" ] && ! cmp -s "$HOME/.tmux.conf" "$MAS_MOD_ROOT/config/tmux.conf"; then
     cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.bak"

@@ -63,22 +63,64 @@ FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHC
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "check fails when drop-in missing"
 
-# the old kit's drop-in (100-ai-server.conf, same settings) counts as installed: check passes, run doesn't add ours
-kit="$MAS_SYSROOT/etc/ssh/sshd_config.d/100-ai-server.conf"
-mkdir -p "$(dirname "$kit")"
-printf '%s\n' "PermitRootLogin no" "ClientAliveInterval 60" "ClientAliveCountMax 5" > "$kit"
-FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
-  FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
-assert_eq "$?" 0 "check accepts the kit's identical drop-in"
+# Effective settings, sshd-style: files in sshd_config.d in name order, first value wins.
+RA_OK=(MAS_HOSTNAME="My AI Mac" FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1
+       FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)")
+# shellcheck disable=SC2016  # the inner script expands its own arguments
+racheck() { env "${RA_OK[@]}" bash -c '. "$1"/lib/common.sh; . "$2"; mod_check' _ "$REPO_DIR" "$REMOTE" >"$OUT" 2>"$OUT.err"; }
+d="$MAS_SYSROOT/etc/ssh/sshd_config.d"; kit="$d/100-ai-server.conf"; off="$MAS_SYSROOT/etc/ssh/100-ai-server.conf.disabled"
+want_conf() { printf '%s\n' "PermitRootLogin no" "ClientAliveInterval 60" "ClientAliveCountMax 5"; }
+mkdir -p "$d"
+# macOS's own drop-in sorts after ours and sets none of our keys
+printf '%s\n' '# Options set by macOS' 'UsePAM yes' > "$d/100-macos.conf"
+
+# identical kit drop-in (sorts before ours): accepted and left alone, ours not added
+want_conf > "$kit"; kit_m="$(stat -f %m:%i "$kit")"
+racheck; assert_eq "$?" 0 "check accepts the kit's identical drop-in"
+assert_ok "ok names the effective settings" has "ok sshd settings in effect"
 runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
+assert_eq "$(stat -f %m:%i "$kit")" "$kit_m" "identical kit drop-in untouched"
+assert_fails "identical kit drop-in not moved aside" test -e "$off"
 assert_fails "run doesn't duplicate the kit's drop-in" test -e "$conf"
-# a kit drop-in with different settings doesn't count
-printf 'PermitRootLogin yes\n' > "$kit"
-FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
-  FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
-assert_eq "$?" 1 "check rejects a different kit drop-in"
+
+# conflicting kit drop-in: it wins in sshd even with ours present, so check fails; run moves it out
+want_conf > "$conf"
+printf '%s\n' "PermitRootLogin yes" "ClientAliveInterval 60" "ClientAliveCountMax 5" > "$kit"
+racheck; assert_eq "$?" 1 "check fails when an earlier kit file overrides ours"
+assert_ok "fail names the key, value and file" has "fail sshd setting PermitRootLogin is 'yes' in .*100-ai-server.conf"
 runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
-assert_ok "run writes ours when the kit's differs" grep -q '^ClientAliveCountMax 5' "$conf"
+assert_fails "conflicting kit file gone from sshd_config.d" test -e "$kit"
+assert_ok "conflicting kit file kept outside sshd_config.d" grep -qx 'PermitRootLogin yes' "$off"
+assert_eq "$(cat "$conf")" "$(want_conf)" "ours in place"
+racheck; assert_eq "$?" 0 "check passes after run moved the kit file"
+
+# conflicting kit file and no file of ours: run moves it and writes ours
+rm -f "$conf" "$off"; printf 'ClientAliveCountMax 1\n' > "$kit"
+runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
+assert_fails "kit file moved" test -e "$kit"
+assert_eq "$(cat "$conf")" "$(want_conf)" "ours written"
+
+# some other earlier file overrides a key: check fails; run warns (doesn't touch files it doesn't own)
+printf '%s\n' "# local" "ClientAliveInterval 0" > "$d/050-local.conf"
+racheck; assert_eq "$?" 1 "check fails on another earlier override"
+assert_ok "names the other file" has "ClientAliveInterval is '0' in .*050-local.conf"
+runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
+assert_ok "run warns about the override" has "overrides the SSH settings"
+assert_ok "other file left alone" test -f "$d/050-local.conf"
+rm -f "$d/050-local.conf"
+
+# Match blocks don't count, keywords are case-insensitive, comments are ignored
+printf '%s\n' "# PermitRootLogin yes" "Match User x" "  PermitRootLogin yes" > "$d/050-match.conf"
+racheck; assert_eq "$?" 0 "settings under Match are ignored"
+rm -f "$d/050-match.conf"
+printf '%s\n' "permitrootlogin NO" > "$d/050-case.conf"
+racheck; assert_eq "$?" 0 "keyword and value compared case-insensitively"
+rm -f "$d/050-case.conf"
+
+# nothing at all: every key reported unset
+rm -f "$conf"
+racheck; assert_eq "$?" 1 "check fails with no drop-in"
+assert_ok "unset reported" has "fail sshd setting ClientAliveCountMax is not set"
 rm -rf "$MAS_SYSROOT/etc/ssh"
 
 # --- tailscale

@@ -16,17 +16,33 @@ _mas_ra_want_conf() {
   printf '%s\n' "PermitRootLogin no" "ClientAliveInterval 60" "ClientAliveCountMax 5"
 }
 
-# The drop-in counts as installed if ours, or the old kit's, holds exactly the wanted settings.
-_mas_ra_conf_ok() {
-  local want f
-  want="$(_mas_ra_want_conf)"
-  for f in "$(_mas_ra_conf)" "$(_mas_ra_kit_conf)"; do
-    [ "$(cat "$f" 2>/dev/null)" = "$want" ] && return 0
-  done
-  return 1
+_mas_ra_dir() { printf '%s' "${MAS_SYSROOT:-}/etc/ssh/sshd_config.d"; }
+# Where a conflicting kit drop-in is moved. Outside sshd_config.d on purpose: sshd_config has
+# `Include /etc/ssh/sshd_config.d/*`, so a renamed file inside it would still be read.
+_mas_ra_kit_disabled() { printf '%s' "${MAS_SYSROOT:-}/etc/ssh/100-ai-server.conf.disabled"; }
+
+# _mas_ra_bad: the effective drop-in settings, worked out the way sshd does (files in name order,
+# first value for each keyword wins, lines under a Match block ignored). Prints one line per wanted
+# setting that isn't in effect: "<Keyword> <value or unset> <file or ->". Prints nothing when all are.
+_mas_ra_bad() {
+  local dir files=() f
+  dir="$(_mas_ra_dir)"
+  for f in "$dir"/*; do [ -f "$f" ] && files+=("$f"); done
+  # shellcheck disable=SC2016  # awk program
+  _mas_ra_want_conf | LC_ALL=C awk '
+    FILENAME == "-" { want[tolower($1)] = $2; name[tolower($1)] = $1; next }
+    FNR == 1 { inmatch = 0 }
+    /^[[:space:]]*#/ || NF < 2 { next }
+    { k = tolower($1) }
+    k == "match" { inmatch = 1; next }
+    !inmatch && (k in want) && !(k in got) { v = $2; sub(/^=/, "", v); got[k] = v; src[k] = FILENAME }
+    END { for (k in want) if (!(k in got)) print name[k], "unset", "-"
+          else if (tolower(got[k]) != tolower(want[k])) print name[k], got[k], src[k] }
+  ' - ${files[@]+"${files[@]}"}
 }
 
 mod_applies() { return 0; }
+
 
 mod_run() {
   local host conf fw want
@@ -42,10 +58,19 @@ mod_run() {
     sudo launchctl enable system/com.openssh.sshd
     sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true; }
   want="$(_mas_ra_want_conf)"
-  if ! _mas_ra_conf_ok; then
+  # The old kit's drop-in sorts before ours, so sshd would take its values first. Identical: keep it.
+  # Different: move it out of sshd_config.d so ours is the one in effect.
+  local kit bad
+  kit="$(_mas_ra_kit_conf)"
+  if [ -f "$kit" ] && [ "$(cat "$kit" 2>/dev/null)" != "$want" ]; then
+    sudo mv -f "$kit" "$(_mas_ra_kit_disabled)" && echo "Moved the old kit's sshd settings aside: $(_mas_ra_kit_disabled)"
+  fi
+  if [ -n "$(_mas_ra_bad)" ] && [ "$(cat "$conf" 2>/dev/null)" != "$want" ]; then
     sudo mkdir -p "$(dirname "$conf")"
     printf '%s\n' "$want" | sudo tee "$conf" >/dev/null
   fi
+  bad="$(_mas_ra_bad)"
+  [ -z "$bad" ] || mas_warn "Another file in $(_mas_ra_dir) overrides the SSH settings (sshd uses the first value it reads): $(printf '%s' "$bad" | tr '\n' ';')"
   sudo launchctl enable system/com.apple.screensharing
   sudo launchctl bootstrap system /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
   sudo "$fw" --setglobalstate on >/dev/null
@@ -61,15 +86,22 @@ mod_run() {
 }
 
 mod_check() {
-  local rc=0 host got fw
+  local rc=0 host got fw bad
   host="$(_mas_ra_host)"; fw="$(_mas_ra_fw)"
   got="$(scutil --get LocalHostName 2>/dev/null)"
   if [ "$got" = "$host" ]; then echo "ok hostname is $host"
   else echo "fail hostname is '${got:-unset}', want $host — run: sudo scutil --set LocalHostName $host"; rc=1; fi
   if sudo -n systemsetup -getremotelogin 2>/dev/null | grep -qi "On"; then echo "ok Remote Login (SSH) is on"
   else echo "fail Remote Login (SSH) is off — run: sudo systemsetup -setremotelogin on"; rc=1; fi
-  if _mas_ra_conf_ok; then echo "ok sshd drop-in installed"
-  else echo "fail sshd drop-in missing — re-run the installer: bash install.sh --only remote-access"; rc=1; fi
+  bad="$(_mas_ra_bad)"
+  if [ -z "$bad" ]; then echo "ok sshd settings in effect (no root login, keepalive)"
+  else
+    printf '%s\n' "$bad" | while read -r k v f; do
+      if [ "$f" = - ]; then echo "fail sshd setting $k is not set — re-run the installer: mac-ai-server install --only remote-access"
+      else echo "fail sshd setting $k is '$v' in $f, which sshd reads first — re-run the installer: mac-ai-server install --only remote-access (or edit that file)"; fi
+    done
+    rc=1
+  fi
   if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then echo "ok Screen Sharing is on"
   else echo "fail Screen Sharing is off — run: sudo launchctl enable system/com.apple.screensharing"; rc=1; fi
   if "$fw" --getglobalstate 2>/dev/null | grep -qi "enabled"; then echo "ok firewall is on"

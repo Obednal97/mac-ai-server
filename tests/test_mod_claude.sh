@@ -97,6 +97,20 @@ assert_ok "changed plist rewritten" grep -qF "$HOME/.local/bin/ai-tmux-start" "$
 before="$(stat -f %m:%i "$BIN/claude-remote-loop") $(stat -f %m "$BIN/claude-local")"; sleep 1
 runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$(stat -f %m:%i "$BIN/claude-remote-loop") $(stat -f %m "$BIN/claude-local")" "$before" "identical scripts untouched"
+# mode 755 for every installed script (generated ones too), also repaired on an unchanged re-run
+for f in claude-local chat ai-motd claude-remote-loop ai-tmux-start; do
+  assert_eq "$(stat -f %Lp "$BIN/$f")" 755 "$f is mode 755"
+done
+chmod 711 "$BIN/claude-local"; chmod 600 "$BIN/chat"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(stat -f %Lp "$BIN/claude-local") $(stat -f %Lp "$BIN/chat")" "755 755" "modes repaired without rewriting"
+# a changed script is replaced by rename (new inode), so a running copy is never read half-written
+ino="$(stat -f %i "$BIN/ai-motd")"; echo '# old' > "$BIN/ai-motd"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "changed script updated" cmp -s "$REPO_DIR/bin/ai-motd" "$BIN/ai-motd"
+assert_fails "changed script replaced by rename, not rewritten in place" test "$(stat -f %i "$BIN/ai-motd")" = "$ino"
+assert_eq "$(stat -f %Lp "$BIN/ai-motd")" 755 "replaced script is 755"
+assert_eq "$(find "$BIN" -name '.mas-put.*' | wc -l | tr -d ' ')" 0 "no temp files left"
 
 # --- zprofile / zshrc blocks added once
 assert_eq "$(grep -c 'mac-ai-server: ssh' "$HOME/.zprofile")" 1 "ssh block once after 3 runs"
