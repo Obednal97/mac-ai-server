@@ -176,9 +176,9 @@ Each entry says what we found and what we decided.
   - It waits 45 seconds so Claude can send its last message, logs to `/var/log/ai-handover.log`, and deletes itself.
   - In a dry run, the launcher's whole process group was killed 4 seconds after start, and the daemon still ran every step.
 
-### The Trash and Downloads (TCC)
-- **Found:** macOS privacy protection (TCC) blocks root daemons from `~/Downloads` and `~/.Trash`. Claude Code's shell can read `~/Downloads`, but not `~/.Trash`.
-- **Decision:** phase 2 empties those from the calling session, just before the daemon's wait. `~/.Trash` may stay as it is, and the docs ask you to empty it yourself.
+### The Trash, Downloads, Documents and browser data (TCC)
+- **Found:** macOS privacy protection (TCC) blocks root daemons from `~/Downloads` and `~/.Trash`, and typically from `~/Documents`, the Desktop and Safari's data. Claude Code's shell can read `~/Downloads`, but not `~/.Trash`.
+- **Decision:** phase 2 empties those folders and deletes the browser data from the calling session, just before the daemon's wait, and the daemon tries again as root. Anything still there is logged as `couldn't delete …`; the dry run shows it in advance, and the docs say how to clear it by hand.
 
 ### Keychain and auto-login during handover
 - **Found:** changing the password leaves the login keychain locked with the old one, and auto-login out of step.
