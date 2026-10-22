@@ -20,6 +20,7 @@ fi
 if [ "$name" = launchctl ] && [ "${1:-}" = print ] && [ "${FAKE_LAUNCHCTL_LOADED:-0}" != 1 ]; then exit 1; fi
 # df is used for real by other tests: pass through unless an output is faked
 if [ "$name" = df ] && [ -z "${FAKE_OUT_df:-}" ]; then exec /bin/df "$@"; fi
+[ "$name" = visudo ] && exit "${FAKE_VISUDO_RC:-0}"
 var="FAKE_OUT_$name"
 if [ -n "${!var:-}" ]; then printf '%s\n' "${!var}"; fi
 exit "${FAKE_RC:-0}"
