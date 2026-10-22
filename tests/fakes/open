@@ -1,1 +1,11 @@
-fake
+#!/bin/bash
+# Fake open (its own script). Logs every call. For the WifiScan status probe
+# (--status --out <file>) writes {"status": "$FAKE_WIFISCAN_STATUS"} (default authorized) to the file;
+# FAKE_WIFISCAN_STATUS=none writes nothing (the app never answered).
+if [ -n "${FAKE_LOG:-}" ]; then echo "open $*" >> "$FAKE_LOG"; fi
+out=""; prev=""
+for a in "$@"; do [ "$prev" = --out ] && out="$a"; prev="$a"; done
+if [ -n "$out" ] && [ "${FAKE_WIFISCAN_STATUS:-authorized}" != none ]; then
+  printf '{"status": "%s"}\n' "${FAKE_WIFISCAN_STATUS:-authorized}" > "$out"
+fi
+exit 0

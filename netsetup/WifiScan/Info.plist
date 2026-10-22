@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>io.github.mac-ai-server.wifiscan</string>
+  <key>CFBundleName</key><string>Wi-Fi Setup</string>
+  <key>CFBundleExecutable</key><string>WifiScan</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>NSLocationUsageDescription</key><string>Lists nearby Wi-Fi networks so you can connect this Mac from your phone.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Lists nearby Wi-Fi networks so you can connect this Mac from your phone.</string>
+</dict></plist>

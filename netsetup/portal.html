@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Mac mini Wi-Fi setup</title>
+<style>
+:root {
+  --page:#e8eaed; --surface:#fbfbfc; --tint:#eef3fa; --ink:#1c1f24; --muted:#565e69; --rule:#cfd4da;
+  --accent:#0a5fc7; --btn:#0a5fc7; --ok:#17733f; --bad:#b0281f; --off:#9aa1ab;
+  --led:#b9bec5; --metal:#f4f5f6; --metal-edge:#c3c8ce; --port:#6b727c;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page:#151719; --surface:#1f2226; --tint:#23303f; --ink:#eceef0; --muted:#a3abb5; --rule:#363b42;
+    --accent:#7ab4ff; --btn:#1f6fd8; --ok:#63d08f; --bad:#ff8a80; --off:#5b626c;
+    --led:#5d646d; --metal:#383d44; --metal-edge:#6a727c; --port:#151719;
+  }
+}
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+/* Follow the iPhone's text size setting (Dynamic Type). Desktop keeps the browser default. */
+@supports (font: -apple-system-body) { @media (pointer: coarse) { html { font:-apple-system-body; } } }
+body {
+  margin:0; min-height:100vh; background:var(--page); color:var(--ink);
+  font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif; font-size:1rem; line-height:1.45;
+  padding:max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
+}
+main { max-width:30rem; margin:0 auto; }
+h1 { font-size:1.6rem; line-height:1.2; font-weight:700; letter-spacing:-.01em; margin:1.25rem 0 .5rem; }
+h2 { font-size:1rem; font-weight:600; margin:0; }
+p { margin:0; }
+.muted { color:var(--muted); }
+.small { font-size:.88rem; }
+button, input { font:inherit; color:inherit; }
+:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+
+/* The Mac itself: a front view whose status light follows the setup state. */
+.device { display:flex; align-items:center; gap:14px; }
+.device svg { flex:none; width:76px; height:auto; }
+.device .body { fill:var(--metal); stroke:var(--metal-edge); }
+.device .foot { fill:var(--metal-edge); }
+.device .port { fill:var(--port); }
+.device .led { fill:var(--led); transition:fill .3s; }
+.device[data-state=joining] .led { fill:#f0a500; animation:pulse 1.6s ease-in-out infinite; }
+.device[data-state=ok] .led { fill:var(--ok); }
+@keyframes pulse { 50% { opacity:.25; } }
+.device .host { font-weight:600; overflow-wrap:anywhere; }
+.device .state { color:var(--muted); font-size:.88rem; overflow-wrap:anywhere; }
+
+.intro { color:var(--muted); }
+.intro + .intro { margin-top:.6rem; }
+
+.listhead { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin:1.75rem 0 .5rem; }
+.card { background:var(--surface); border:1px solid var(--rule); border-radius:14px; overflow:hidden; }
+
+.net {
+  display:flex; align-items:center; gap:12px; width:100%; min-height:3.25rem; padding:.75rem 1rem;
+  border:0; border-top:1px solid var(--rule); background:none; text-align:left; cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.card > :first-child { border-top:0; }
+.net:active:not(:disabled) { background:var(--tint); }
+.net[aria-expanded=true] { background:var(--tint); font-weight:600; }
+.net:disabled { cursor:default; color:var(--muted); }
+.net[aria-expanded=true]:disabled { color:var(--ink); }
+.net .name { flex:1; min-width:0; overflow-wrap:anywhere; }
+.net .icons { display:flex; align-items:center; gap:10px; flex:none; color:var(--muted); }
+.lock { width:.75em; height:.9em; }
+.bars { width:1.1em; height:.9em; }
+.bars rect { fill:var(--off); }
+.bars rect.on { fill:var(--ink); }
+
+.empty { display:flex; gap:10px; padding:1rem; color:var(--muted); }
+.empty strong { color:var(--ink); font-weight:600; display:block; }
+
+#panel { background:var(--tint); border-top:1px solid var(--rule); padding:.25rem 1rem 1rem; }
+.card > #panel:first-child { border-top:0; padding-top:1rem; }
+form { display:grid; gap:.9rem; }
+.field { display:grid; gap:.35rem; }
+label { font-size:.88rem; color:var(--muted); }
+label strong { color:var(--ink); font-weight:600; overflow-wrap:anywhere; }
+.hint { font-size:.88rem; color:var(--muted); }
+.pwrow { display:flex; gap:8px; flex-wrap:wrap; }
+input[type=text], input[type=password] {
+  flex:1 1 10rem; min-width:0; width:100%; min-height:2.9rem; padding:.65rem .8rem;
+  font-size:max(16px, 1rem); /* below 16px iOS zooms the page on focus */
+  border:1px solid var(--rule); border-radius:10px; background:var(--surface);
+}
+input:read-only { color:var(--muted); }
+.ghost {
+  min-height:2.9rem; min-width:4.5em; padding:0 .9rem; border:1px solid var(--rule); border-radius:10px;
+  background:var(--surface); color:var(--accent); font-weight:600; cursor:pointer;
+}
+.primary {
+  display:flex; align-items:center; justify-content:center; gap:10px; width:100%; min-height:3.1rem; padding:.7rem 1rem;
+  border:0; border-radius:12px; background:var(--btn); color:#fff; font-weight:600; font-size:1.06rem; cursor:pointer;
+}
+.primary:disabled { cursor:default; opacity:.7; }
+.link {
+  min-height:44px; padding:0 2px; border:0; background:none; color:var(--accent); font-weight:500; cursor:pointer;
+  display:inline-flex; align-items:center; gap:8px; text-align:left;
+}
+.link:disabled { color:var(--muted); cursor:default; }
+.other { margin-top:.35rem; }
+
+#jmsg { margin-top:.9rem; display:flex; gap:10px; align-items:flex-start; }
+#jmsg .main { font-weight:600; overflow-wrap:anywhere; }
+#jmsg .sub { color:var(--muted); font-size:.88rem; margin-top:.15rem; }
+#jmsg.bad { padding:.75rem .85rem; border-radius:10px; background:var(--surface); border:1px solid var(--bad); }
+#jmsg.bad .main { color:var(--bad); }
+#jmsg .tick { font-variant-numeric:tabular-nums; }
+
+#done { padding-top:.75rem; }
+#done .title { display:flex; align-items:center; gap:10px; font-size:1.2rem; font-weight:700; color:var(--ok); overflow-wrap:anywhere; }
+#done .title svg { flex:none; width:1.5em; height:1.5em; }
+#done ol { margin:.9rem 0 0; padding-left:1.4rem; display:grid; gap:.5rem; }
+#done li::marker { font-weight:600; color:var(--muted); }
+#done .ssh { margin-top:1rem; font-size:.88rem; color:var(--muted); }
+#done code { display:block; margin-top:.2rem; font:.95em ui-monospace,Menlo,monospace; color:var(--ink); -webkit-user-select:all; user-select:all; overflow-wrap:anywhere; }
+
+.spin {
+  flex:none; display:inline-block; width:1em; height:1em; margin-top:.2em;
+  border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite;
+}
+.primary .spin, .link .spin { margin-top:0; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration:2.4s; }
+  .device[data-state=joining] .led { animation:none; }
+}
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="device" id="device" data-state="idle">
+    <svg viewBox="0 0 76 26" aria-hidden="true">
+      <rect class="foot" x="10" y="22" width="56" height="3" rx="1.5"/>
+      <rect class="body" x=".5" y=".5" width="75" height="22" rx="5"/>
+      <rect class="port" x="9" y="10" width="6" height="2.6" rx="1.3"/>
+      <rect class="port" x="18" y="10" width="6" height="2.6" rx="1.3"/>
+      <circle class="port" cx="29.5" cy="11.3" r="1.4"/>
+      <circle class="led" cx="66" cy="11.3" r="1.5"/>
+    </svg>
+    <div>
+      <div class="host" id="host">Mac mini</div>
+      <div class="state" id="state">Not on Wi-Fi yet</div>
+    </div>
+  </div>
+
+  <h1>Connect this Mac mini to your Wi-Fi</h1>
+  <p class="intro" id="intro1">The Mac mini has no Wi-Fi yet, so it is talking to your phone through the cable. Choose your Wi-Fi network below and type its password. You only do this once.</p>
+  <p class="intro" id="intro2">Keep the cable plugged in until you see <strong>Connected</strong>.</p>
+
+  <div class="listhead">
+    <h2 id="listtitle">Wi-Fi networks the Mac can see</h2>
+    <button class="link" id="rescan" type="button">Scan again</button>
+  </div>
+  <div class="card" id="list" aria-labelledby="listtitle">
+    <div class="empty" id="empty"><span class="spin" aria-hidden="true"></span><div><strong>Looking for networks…</strong>This can take up to 30 seconds.</div></div>
+    <div id="panel" hidden>
+      <form id="join" novalidate>
+        <div class="field" id="namefield" hidden>
+          <label for="ssid">Network name</label>
+          <input id="ssid" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next" maxlength="32">
+          <p class="hint">Type it exactly as it appears on your router, including capital letters.</p>
+        </div>
+        <div class="field" id="pwfield">
+          <label for="pw" id="pwlabel">Password for <strong id="chosen"></strong></label>
+          <div class="pwrow">
+            <input id="pw" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="join" maxlength="128">
+            <button class="ghost" id="show" type="button" aria-pressed="false" aria-controls="pw">Show</button>
+          </div>
+          <p class="hint" id="pwhint" hidden>Leave it empty if the network has no password.</p>
+        </div>
+        <p class="hint" id="openhint" hidden>This network has no password.</p>
+        <button class="primary" id="go" type="submit">Join</button>
+      </form>
+      <div id="jmsg" role="status" aria-live="polite" hidden></div>
+      <div id="done" hidden>
+        <p class="title" id="donetitle"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="var(--surface)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="donetext"></span></p>
+        <p id="donenote">The Mac mini will use this Wi-Fi from now on, even after a restart.</p>
+        <ol>
+          <li>Unplug the cable. You can turn off Personal Hotspot.</li>
+          <li>Carry on with step 2 on your setup card.</li>
+        </ol>
+        <p class="ssh" id="ssh" hidden>If you use Terminal: <code id="sshcmd"></code></p>
+      </div>
+    </div>
+  </div>
+  <p class="other"><button class="link" id="hidden" type="button">Network not listed? Type its name</button></p>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const S = {
+  nets: null, scanError: false, scanning: false, scanStart: 0,
+  chosen: null,           // {ssid, open, typed}
+  joining: false, joinSsid: "", joinStart: 0, poll: null, misses: 0,
+  done: false, host: "", user: ""
+};
+const q = s => "“" + s + "”";
+const secs = t => Math.max(0, Math.round((Date.now() - t) / 1000));
+
+// When the Mac is already online the daemon answers /api/* with a small HTML page instead of JSON.
+async function getJSON(url, opts) {
+  const r = await fetch(url, Object.assign({ cache: "no-store" }, opts));
+  const text = await r.text();
+  try { return { r, data: JSON.parse(text) }; } catch (e) {}
+  if (/online/i.test(text)) return { r, online: true };
+  throw new Error("unexpected reply");
+}
+
+// ---------------------------------------------------------------- header
+function header(state, text) {
+  $("device").dataset.state = state;
+  $("state").textContent = text;
+}
+function setHost(h) {
+  if (!h) return;
+  S.host = h;
+  $("host").textContent = "Mac mini “" + h + "”";
+}
+(function () {
+  const h = location.hostname;
+  if (/\.local$/i.test(h)) setHost(h.replace(/\.local$/i, ""));
+})();
+
+// ---------------------------------------------------------------- list
+const WORDS = ["", "weak", "fair", "good", "strong"];
+function strength(rssi) { return rssi > -55 ? 4 : rssi > -65 ? 3 : rssi > -75 ? 2 : 1; }
+function barsSVG(rssi) {
+  const n = strength(rssi);
+  return '<svg class="bars" viewBox="0 0 17 14" role="img" aria-label="Signal ' + WORDS[n] + '">' +
+    [0, 1, 2, 3].map(i => '<rect x="' + (i * 4.6) + '" y="' + (10.5 - i * 3.5) + '" width="3.2" height="' + (3.5 + i * 3.5) +
+      '" rx="1"' + (i < n ? ' class="on"' : "") + "/>").join("") + "</svg>";
+}
+const LOCK = '<svg class="lock" viewBox="0 0 12 15" role="img" aria-label="Needs a password">' +
+  '<path d="M3.2 7V4.6a2.8 2.8 0 0 1 5.6 0V7" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
+  '<rect x="1" y="6.6" width="10" height="8" rx="2" fill="currentColor"/></svg>';
+
+function rows() { return [...$("list").querySelectorAll(".net")]; }
+
+function makeRow(n) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "net"; b.dataset.ssid = n.ssid;
+  b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-controls", "panel");
+  b.innerHTML = '<span class="name"></span><span class="icons">' + (n.open ? "" : LOCK) + barsSVG(n.rssi) + "</span>";
+  b.querySelector(".name").textContent = n.ssid;
+  b.onclick = () => pick(n, b);
+  return b;
+}
+
+function emptyState() {
+  const e = $("empty");
+  let html = "";
+  if (S.done) html = "";
+  else if (S.nets === null && S.scanning) {
+    html = '<span class="spin" aria-hidden="true"></span><div><strong>Looking for networks… <span class="tick">' +
+      secs(S.scanStart) + ' s</span></strong>This can take up to 30 seconds.</div>';
+  } else if (S.scanError && !(S.nets && S.nets.length)) {
+    html = "<div><strong>Can’t reach the Mac mini.</strong>Check that the cable is plugged in and Personal Hotspot is on, then tap Scan again.</div>";
+  } else if (S.nets && !S.nets.length && !S.scanning) {
+    html = "<div><strong>No networks found.</strong>Check that your Wi-Fi router is switched on, then tap Scan again. If your network is hidden, type its name below.</div>";
+  }
+  e.innerHTML = html; e.hidden = !html;
+}
+
+// Re-render the rows without moving the panel when possible, so a half-typed password
+// (and the keyboard) survive a rescan.
+function renderList() {
+  const list = $("list"), box = $("panel");
+  rows().forEach(r => r.remove());
+  emptyState();
+  const nets = S.nets || [];
+  const keep = S.chosen && !S.chosen.typed ? nets.findIndex(n => n.ssid === S.chosen.ssid) : -1;
+  const made = nets.map(makeRow);
+  if (keep >= 0 && !box.hidden) {
+    made.slice(0, keep + 1).forEach(r => list.insertBefore(r, box));
+    made.slice(keep + 1).forEach(r => list.appendChild(r));
+  } else {
+    // panel (if open) stays at the top: a typed name, or a network that dropped out of the scan
+    made.forEach(r => list.appendChild(r));
+  }
+  syncRows();
+}
+
+function syncRows() {
+  const lock = S.joining || S.done;
+  rows().forEach(r => {
+    const open = !$("panel").hidden && S.chosen && !S.chosen.typed && r.dataset.ssid === S.chosen.ssid;
+    r.setAttribute("aria-expanded", String(!!open));
+    r.disabled = lock;
+  });
+  const rs = $("rescan");
+  rs.hidden = S.done;
+  rs.disabled = S.scanning || S.joining;
+  rs.innerHTML = S.scanning && rows().length ? '<span class="spin" aria-hidden="true"></span>Scanning… <span class="tick">' + secs(S.scanStart) + " s</span>" : "Scan again";
+  $("hidden").hidden = S.done;
+  $("hidden").disabled = S.joining;
+}
+
+async function load(refresh) {
+  if (S.scanning) return;
+  S.scanning = true; S.scanStart = Date.now();
+  emptyState(); syncRows();
+  try {
+    const res = await getJSON("/api/networks" + (refresh ? "?refresh=1" : ""));
+    if (res.online) { S.scanning = false; if (!S.joining) showDone(null); renderList(); return; }
+    if (!Array.isArray(res.data)) throw new Error("bad reply");
+    S.nets = res.data; S.scanError = false;
+  } catch (e) {
+    S.scanError = true;
+    if (S.nets === null) S.nets = [];
+  }
+  S.scanning = false;
+  renderList();
+}
+
+// ---------------------------------------------------------------- panel
+function pick(net, row) {
+  if (S.joining || S.done) return;
+  const box = $("panel");
+  if (!box.hidden && S.chosen && !S.chosen.typed && !net.typed && S.chosen.ssid === net.ssid) { // tap again: close
+    box.hidden = true; S.chosen = null; syncRows(); return;
+  }
+  S.chosen = net;
+  if (row) row.after(box); else $("list").prepend(box);
+  box.hidden = false;
+  $("jmsg").hidden = true; $("done").hidden = true; $("join").hidden = false;
+  $("pw").value = ""; $("ssid").value = "";
+  $("namefield").hidden = !net.typed;
+  $("pwfield").hidden = !!net.open;
+  $("openhint").hidden = !net.open;
+  $("pwhint").hidden = !net.typed;
+  $("pwlabel").innerHTML = net.typed ? "Password" : 'Password for <strong id="chosen"></strong>';
+  if (!net.typed) $("chosen").textContent = net.ssid;
+  syncRows();
+  const f = net.typed ? $("ssid") : net.open ? null : $("pw");
+  if (f) f.focus({ preventScroll: true });
+  box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function say(main, kind, opts) {
+  opts = opts || {};
+  const m = $("jmsg");
+  m.className = kind || "";
+  m.innerHTML = (opts.busy ? '<span class="spin" aria-hidden="true"></span>' : "") +
+    '<div><p class="main"></p>' + (opts.sub ? '<p class="sub"></p>' : "") + "</div>";
+  m.querySelector(".main").textContent = main;
+  if (opts.tick != null) m.querySelector(".main").insertAdjacentHTML("beforeend", ' <span class="tick">' + opts.tick + " s</span>");
+  if (opts.sub) m.querySelector(".sub").textContent = opts.sub;
+  m.hidden = false;
+}
+
+function setJoining(on, ssid) {
+  S.joining = on;
+  if (on) { S.joinSsid = ssid; S.joinStart = S.joinStart || Date.now(); }
+  else S.joinStart = 0;
+  const go = $("go");
+  go.disabled = on;
+  go.innerHTML = on ? '<span class="spin" aria-hidden="true"></span>Joining…' : "Join";
+  $("pw").readOnly = $("ssid").readOnly = on;
+  $("show").disabled = on;
+  header(on ? "joining" : "idle", on ? "Joining " + q(ssid) + "…" : "Not on Wi-Fi yet");
+  if (on) joiningText();
+  syncRows();
+}
+
+function joiningText() {
+  const t = secs(S.joinStart);
+  if (S.misses >= 2) {
+    say("Waiting for the Mac mini to answer…", "", { busy: true, tick: t,
+      sub: "If this goes on for more than a minute, check that the cable is still plugged in." });
+  } else {
+    say("Joining " + q(S.joinSsid) + "…", "", { busy: true, tick: t > 2 ? t : null,
+      sub: t < 45 ? "This usually takes 10 to 30 seconds. Keep the cable plugged in."
+                  : "Still trying. It can take up to two minutes. Keep the cable plugged in." });
+  }
+}
+
+function friendly(err, ssid) {
+  err = String(err || "");
+  if (/wrong password/i.test(err)) return ["That password didn’t work.", "Check capital letters and try again. Tap Show to see what you typed."];
+  if (/in range/i.test(err)) return ["The Mac mini can’t find " + q(ssid) + " right now.", "Check the name and that the router is on and near the Mac, then try again."];
+  if (/no address/i.test(err)) return ["The Mac joined " + q(ssid) + " but your router didn’t let it in.", "Try again in a minute. If it keeps happening, restart your router."];
+  if (/timed out/i.test(err)) return ["The Mac mini gave up waiting for " + q(ssid) + ".", "Check the password, move the Mac closer to the router if you can, and try again."];
+  if (/logged in/i.test(err)) return ["The Mac mini isn’t ready yet.", err.replace(/\.?$/, ".")];
+  return ["Couldn’t join " + q(ssid) + ".", (err ? err.replace(/\.?$/, ". ") : "") + "Try again."];
+}
+
+function finish(res) {
+  stopPolling();
+  const ssid = res.ssid || S.joinSsid;
+  setJoining(false);
+  if (res.ok) return showDone(ssid);
+  const [main, sub] = friendly(res.error, ssid);
+  say(main, "bad", { sub });
+  if (!$("pwfield").hidden && /password|timed out/i.test(res.error || "")) {
+    const pw = $("pw"); pw.focus({ preventScroll: true }); pw.select();
+  }
+  $("jmsg").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function showDone(ssid) {   // ssid null: the Mac reports it is online, without a join from this page
+  if (S.done) return;
+  S.done = true;
+  // Make sure the panel exists and sits under the right network (e.g. after a reload).
+  if ($("panel").hidden) {
+    const row = ssid ? rows().find(r => r.dataset.ssid === ssid) : null;
+    S.chosen = { ssid: ssid || "", open: false, typed: !row };
+    if (row) row.after($("panel")); else $("list").prepend($("panel"));
+    $("panel").hidden = false;
+  }
+  $("join").hidden = true; $("jmsg").hidden = true;
+  $("donetext").textContent = ssid ? "Connected to " + q(ssid) : "The Mac mini is online";
+  $("donenote").textContent = ssid ? "The Mac mini will use this Wi-Fi from now on, even after a restart."
+                                   : "It is already connected, so there is nothing more to set up here.";
+  if (S.host) {
+    $("sshcmd").textContent = "ssh " + (S.user || "admin") + "@" + S.host + ".local";
+    $("ssh").hidden = false;
+  }
+  $("done").hidden = false;
+  header("ok", ssid ? "On Wi-Fi: " + ssid : "Online");
+  if (!ssid) {   // opened when there was nothing to do: the intro would contradict the page
+    $("intro1").textContent = "The Mac mini is already on a network, so there is nothing to set up here.";
+    $("intro2").hidden = true;
+    if (!rows().length) $("listtitle").parentNode.hidden = true;
+  }
+  syncRows();
+  $("done").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+// ---------------------------------------------------------------- status polling
+function startPolling() { if (!S.poll) S.poll = setInterval(status, 2000); }
+function stopPolling() { clearInterval(S.poll); S.poll = null; S.misses = 0; }
+
+async function status() {
+  let res;
+  try {
+    res = await getJSON("/api/status");
+    S.misses = 0;
+  } catch (e) {
+    if (S.joining) { S.misses++; joiningText(); }
+    return;
+  }
+  if (res.online) { stopPolling(); setJoining(false); showDone(S.joinSsid || null); return; }
+  const s = res.data || {};
+  setHost(s.host); if (s.user) S.user = s.user;
+  if (s.joining) {
+    if (!S.joining && !S.done) adopt(s.joining);   // e.g. the page was reloaded mid-join
+    return;
+  }
+  if (S.joining) {
+    if (s.result) finish(s.result);
+    else { stopPolling(); setJoining(false); say("The Mac mini stopped before it finished.", "bad", { sub: "Tap Join to try again." }); }
+  }
+}
+
+function adopt(ssid) {
+  const row = rows().find(r => r.dataset.ssid === ssid);
+  const net = (S.nets || []).find(n => n.ssid === ssid);
+  if (!S.chosen || S.chosen.ssid !== ssid || $("panel").hidden) pick(net || { ssid, open: false, typed: true }, row);
+  if (!row) { $("namefield").hidden = false; $("ssid").value = ssid; }
+  setJoining(true, ssid);
+  startPolling();
+}
+
+// ---------------------------------------------------------------- actions
+$("join").onsubmit = async e => {
+  e.preventDefault();
+  if (S.joining || S.done || !S.chosen) return;
+  const ssid = S.chosen.typed ? $("ssid").value.trim() : S.chosen.ssid;
+  const pw = $("pw").value;
+  if (!ssid) { say("Type the network name first.", "bad"); $("ssid").focus(); return; }
+  if (!S.chosen.open && !S.chosen.typed && !pw) { say("Type the password first.", "bad"); $("pw").focus(); return; }
+  if (S.chosen.typed) S.chosen.ssid = ssid;
+  document.activeElement && document.activeElement.blur();   // close the keyboard so the status is in view
+  S.joinStart = Date.now();
+  setJoining(true, ssid);
+  setTimeout(() => $("jmsg").scrollIntoView({ block: "nearest", behavior: "smooth" }), 350);
+  let r = null;
+  try {
+    r = await fetch("/api/join", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid, password: S.chosen.open ? "" : pw }) });
+  } catch (e) { r = null; }
+  if (!r) { setJoining(false); say("Can’t reach the Mac mini.", "bad", { sub: "Check that the cable is plugged in and Personal Hotspot is on, then tap Join again." }); return; }
+  if (!r.ok && r.status !== 409) {   // 409: a join is already running, so just follow it
+    const j = await r.json().catch(() => ({}));
+    setJoining(false); say(j.error ? j.error.replace(/\.?$/, ".") : "The Mac mini didn’t accept that.", "bad", { sub: "Try again." });
+    return;
+  }
+  startPolling();
+};
+$("show").onclick = () => {
+  const show = $("pw").type === "password";
+  $("pw").type = show ? "text" : "password";
+  $("show").textContent = show ? "Hide" : "Show";
+  $("show").setAttribute("aria-pressed", String(show));
+};
+$("rescan").onclick = () => load(true);
+$("hidden").onclick = () => pick({ ssid: "", open: false, typed: true, rssi: -70 }, null);
+
+// one clock for the seconds counters
+setInterval(() => {
+  if (S.joining) joiningText();
+  if (S.scanning) { emptyState(); syncRows(); }
+}, 1000);
+
+load(false);
+(async () => {   // first look: a join already running (page reloaded), or one that just finished
+  let res;
+  try { res = await getJSON("/api/status"); } catch (e) { return; }
+  if (res.online) return showDone(null);
+  const s = res.data || {};
+  setHost(s.host); if (s.user) S.user = s.user;
+  if (s.joining) return adopt(s.joining);
+  if (s.result && s.result.ok) {   // only success is shown; a stale failure would confuse a fresh visit
+    const later = () => S.scanning ? setTimeout(later, 300) : showDone(s.result.ssid);
+    later();
+  }
+})();
+</script>
+</body>
+</html>
