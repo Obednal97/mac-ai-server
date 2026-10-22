@@ -48,7 +48,7 @@ assert_logged '^brew install ollama'
 assert_logged '^brew services stop ollama'
 assert_ok "context substituted" grep -q '<string>65536</string>' "$PLIST"
 assert_fails "no placeholder left" grep -q '__' "$PLIST"
-assert_ok "keep alive 24h" grep -A0 'OLLAMA_KEEP_ALIVE' "$PLIST" | grep -q '24h'
+assert_eq "$(grep 'OLLAMA_KEEP_ALIVE' "$PLIST" | grep -c '<string>24h</string>')" 1 "keep alive 24h"
 assert_ok "flash attention kept" grep -q 'OLLAMA_FLASH_ATTENTION' "$PLIST"
 assert_ok "kv cache kept" grep -q 'q8_0' "$PLIST"
 assert_logged '^launchctl bootstrap gui/[0-9]+ .*local.ollama.plist'
@@ -64,9 +64,15 @@ assert_ok "context updated on re-run" grep -q '<string>32768</string>' "$PLIST"
 # laptop-daily frees memory sooner
 runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=laptop-daily FAKE_OUT_curl="$VER"
 assert_ok "laptop-daily keep alive 30m" grep -q '<string>30m</string>' "$PLIST"
-assert_fails "laptop-daily not 24h" grep -q '24h' "$PLIST"
+assert_eq "$(grep -c '24h' "$PLIST")" 0 "laptop-daily not 24h"
 runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=laptop-server FAKE_OUT_curl="$VER"
 assert_ok "laptop-server keeps 24h" grep -q '<string>24h</string>' "$PLIST"
+# brew install failure
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop FAKE_RC=1 FAKE_OUT_curl="$VER"
+assert_eq "$?" 1 "run fails when brew install fails"
+assert_ok "warn names brew install" has "brew install ollama"
+assert_not_logged '^launchctl bootstrap'
+assert_ok "log dir created" test -d "$MAS_BREW_PREFIX/var/log"
 # server never answers
 runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop FAKE_RC=0 FAKE_OUT_curl=""
 assert_eq "$?" 1 "run fails when the API never answers"
@@ -115,5 +121,9 @@ assert_ok "ok line" has "^ok "
 runfn "$MOD" mod_check MAS_PRIMARY=big:30b FAKE_OUT_ollama="NAME"
 assert_eq "$?" 1 "models check fails when missing"
 assert_ok "fix named" has "fail .* — .*ollama pull big:30b"
+runfn "$MOD" mod_check MAS_PRIMARY=big:30b FAKE_RC=1
+assert_eq "$?" 1 "models check fails when ollama is down"
+assert_ok "down message" has "Ollama isn't running — run: launchctl kickstart"
+assert_fails "not blamed on download" has "not downloaded"
 
 t_summary

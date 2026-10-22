@@ -24,7 +24,6 @@ mod_run() {
   grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null \
     || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zprofile"
   # shellcheck disable=SC2016
-
   grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
   mkdir -p "$HOME/.local/bin"

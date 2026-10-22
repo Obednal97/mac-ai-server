@@ -17,10 +17,10 @@ mod_run() {
   [ -n "${MAS_CONTEXT:-}" ] || { mas_warn "No context length in the plan (MAS_CONTEXT); can't configure Ollama."; return 1; }
   command -v brew >/dev/null 2>&1 || { mas_warn "Homebrew is missing; Ollama skipped."; return 1; }
   plist="$(_mas_oll_plist)"; dir="$(dirname "$plist")"; keep="$(_mas_oll_keep)"
-  brew install ollama
+  brew install ollama || { mas_warn "Couldn't install Ollama with Homebrew (brew install ollama failed). Check your internet connection, run: brew doctor, then re-run the installer."; return 1; }
   brew services stop ollama >/dev/null 2>&1 || true
   rm -f "$dir/sh.brew.ollama.plist"
-  mkdir -p "$dir"
+  mkdir -p "$dir" "${MAS_BREW_PREFIX:-/opt/homebrew}/var/log"
   sed -e "s/__CONTEXT__/$MAS_CONTEXT/" -e "s/__KEEP_ALIVE__/$keep/" \
     "$MAS_MOD_ROOT/launchagents/local.ollama.plist" > "$plist"
   mas_reload_agent local.ollama "$plist" || return 1

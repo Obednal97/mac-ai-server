@@ -270,6 +270,10 @@ discover_modules
 [ -z "$SKIP" ] || validate_names --skip "$SKIP"
 
 if [ "$CHECK" = 1 ]; then
+  # Same plan as a run (read-only, no prompts, no disk gate), so checks see MAS_PRIMARY etc.
+  preflight
+  mas_plan_model || mas_warn "Couldn't work out which AI model fits this Mac; model checks may fail."
+  resolve_mode plan
   do_check
   exit $?
 fi

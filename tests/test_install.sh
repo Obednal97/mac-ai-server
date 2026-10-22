@@ -97,6 +97,10 @@ assert_eq "$(rc)" 0 "empty modules dir ok"
 assert_eq "$(rc)" 0 "check passes"
 assert_ok "check shows ok lines" has_out "ok alpha is fine"
 assert_not_logged '^sudo'
+assert_ok "check sees planned model" has_out "primary=qwen3.8:27b-mxfp8"
+assert_ok "check sees planned context" has_out "context=[0-9][0-9]*"
+MAS_FREE_GB=1 run --check
+assert_eq "$(rc)" 0 "check ignores low disk"
 FIX_CHECK_FAIL=1 run --check
 assert_eq "$(rc)" 1 "check fails on a fail line"
 assert_ok "check prints fail line" has_out "fail beta is broken"

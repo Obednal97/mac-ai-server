@@ -32,6 +32,10 @@ mod_check() {
   local tag="${MAS_PRIMARY:-}"
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"
   [ -n "$tag" ] || { echo "fail No model is chosen — run: mac-ai-server install --plan"; return 1; }
+  if ! ollama list >/dev/null 2>&1; then
+    echo "fail Ollama isn't running — run: launchctl kickstart -k gui/$(id -u)/local.ollama"
+    return 1
+  fi
   if _mas_model_have "$tag"; then
     echo "ok Model $tag is downloaded"
   else
