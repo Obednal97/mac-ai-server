@@ -8,8 +8,8 @@
 #     per line, '#' comments allowed) is used when present and --generic is not
 #     given. It lives outside the repo and is never copied in.
 # Allowed on purpose: the URL github.com/Obednal97/claude-statusline-kit (owner-approved; any other
-# use of the username is still flagged by the blocklist). Also not matched by any pattern): 172.20.10.x, RFC 5737 ranges,
-# 192.168.2.1, noreply addresses such as noreply@anthropic.com, shell-variable users
+# use of the username is still flagged by the blocklist). No pattern matches these either: 172.20.10.x,
+# RFC 5737 ranges, 192.168.2.1, noreply addresses such as noreply@anthropic.com, shell-variable users
 # ($VAR@host) and <user>@<host>.local SSH targets.
 GENERIC_ONLY=0
 if [ "${1:-}" = "--generic" ]; then GENERIC_ONLY=1; shift; fi

@@ -79,6 +79,7 @@ have_model() { downloaded_models | grep -Fxq "$1"; }
 # Refresh the optional status line kit when it was installed. A failure only warns.
 update_statusline() {
   local kit="$HOME/claude-statusline-kit"
+  [ "${MAS_STATUSLINE:-yes}" = yes ] || return 0
   [ -f "$kit/update.sh" ] || return 0
   echo "Updating the Claude Code status line..."
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH" /bin/bash "$kit/update.sh" \

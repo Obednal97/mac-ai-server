@@ -16,6 +16,8 @@ t_setup() {
   # so anything that isn't faked can't run a real Homebrew/npm/uv binary.
   export PATH="$TESTS_DIR/fakes:/usr/bin:/bin:/usr/sbin:/sbin"
   export MAS_BREW_PREFIX="$T_TMP/brew-prefix"
+  # modules/30-homebrew.sh defaults this to the real /opt/homebrew/bin/brew.
+  export MAS_BREW_BIN="$MAS_BREW_PREFIX/bin/brew"
 }
 
 t_teardown() { [ -n "${T_TMP:-}" ] && rm -rf "$T_TMP"; }

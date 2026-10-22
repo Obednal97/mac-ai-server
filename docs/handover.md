@@ -24,10 +24,10 @@ This is the complete list. The new owner gets the same admin account, so anythin
 - Ollama's identity key and its chat history (`~/.ollama/history`, the `chat` prompts);
 - the installer's log `~/.mac-ai-server/install.log` (Tailscale sign-in link, addresses, names) and the Wi-Fi setup log `/var/log/ai-netsetup.log` (names of joined networks);
 - everything in `~/projects`, `~/Documents`, `~/Downloads`, `~/.Trash` and on the Desktop, except **Start Here**;
-- `~/WELCOME.txt` and opencode's settings, if present.
+- `~/setup-ai-server.log`, `~/WELCOME.txt` and opencode's settings, if present.
 
 **Removed:**
-- passwordless admin (agent mode);
+- passwordless admin: phase 2 removes every `/etc/sudoers.d/*-nopasswd` file, not just the one this installer created;
 - the Mac from your Tailscale network.
 
 **Kept:**

@@ -155,7 +155,8 @@ if [ "$MODE" = root ]; then
   # Empty these, keep the folders. macOS privacy protection (TCC) blocks root daemons from
   # ~/Downloads and ~/.Trash, so the phase 2 launcher also empties them from the calling session.
   for d in .Trash Downloads projects Documents Desktop; do
-    probe "$H/$d"; [ -d "$H/$d" ] && { r find "$H/$d" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" -exec rm -rf {} + || log "   !! couldn't empty $H/$d"; }
+    keep=""; [ "$d" = Desktop ] && keep="$KEEP_ON_DESKTOP"   # only the Desktop keeps Start Here
+    probe "$H/$d"; [ -d "$H/$d" ] && { r find "$H/$d" -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} + || log "   !! couldn't empty $H/$d"; }
   done
   probe "$SYSROOT/private/tmp/claude-$UIDN"; r rm -rf "$SYSROOT/private/tmp/claude-$UIDN"
   # Login keychain (Claude Code credentials and other secrets). macOS makes a new one, protected by
@@ -572,11 +573,17 @@ EOF
   # this session may be allowed in (Claude Code's shell can read ~/Downloads, not ~/.Trash).
   for i in "$HOME/Downloads" "$HOME/.Trash" "$HOME/Documents" "$HOME/Desktop"; do
     [ -d "$i" ] || continue
+    keep=""; [ "$i" = "$HOME/Desktop" ] && keep="$KEEP_ON_DESKTOP"   # only the Desktop keeps Start Here
     if ! ls -A "$i" >/dev/null 2>&1; then warn "$i can't be read from this session (macOS privacy protection); it is left as is."
-    elif [ "$DRY_RUN" = 1 ]; then echo "[dry-run] empty $i ($(find "$i" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" | wc -l | tr -d ' ') items; readable from this session)"
-    else find "$i" -mindepth 1 -maxdepth 1 ! -name "$KEEP_ON_DESKTOP" -exec rm -rf {} + 2>/dev/null; echo "Emptied $i."; fi
+    elif [ "$DRY_RUN" = 1 ]; then echo "[dry-run] empty $i ($(find "$i" -mindepth 1 -maxdepth 1 ! -name "$keep" | wc -l | tr -d ' ') items; readable from this session)"
+    else find "$i" -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} + 2>/dev/null; echo "Emptied $i."; fi
   done
   # Browser data as well (Safari's is closed to root daemons, this session may be allowed in).
+  # Quit the browsers first, so a running one can't write its history back.
+  for a in Safari "Google Chrome" firefox "Microsoft Edge"; do
+    if [ "$DRY_RUN" = 1 ]; then echo "[dry-run] quit $a"; else pkill -U "$(id -u)" -x "$a" 2>/dev/null; fi
+  done
+  [ "$DRY_RUN" = 1 ] || sleep 1
   for i in "${BROWSER_DATA[@]}"; do
     [ -e "$HOME/$i" ] || continue
     if [ "$DRY_RUN" = 1 ]; then echo "[dry-run] delete ~/$i"

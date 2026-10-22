@@ -16,7 +16,7 @@ mod_run() {
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"; export PATH   # node and npm from the dev-tools step
   mas_step "Claude Code status line"
   command -v git >/dev/null 2>&1 || { mas_warn "git is missing, so the status line can't be downloaded. Run: mac-ai-server install --only homebrew"; return 1; }
-  command -v node >/dev/null 2>&1 || { mas_warn "Node.js is missing, and the status line needs it. Run: mac-ai-server install --only homebrew"; return 1; }
+  command -v node >/dev/null 2>&1 || { mas_warn "Skipping the status line: it needs Node.js. Add node to your developer tools and re-run."; return 0; }
   if [ -d "$dir/.git" ]; then
     git -C "$dir" pull --ff-only || { mas_warn "Couldn't update $dir (it has changes of its own?). Running its installer as it is."; }
   elif [ -e "$dir" ]; then
@@ -31,6 +31,10 @@ mod_run() {
 
 mod_check() {
   local fix="run: mac-ai-server install --only statusline"
+  PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "info Status line skipped: it needs Node.js. Add node to your developer tools and re-run."; return 0
+  fi
   if /usr/bin/python3 -I - "$HOME/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
 try:

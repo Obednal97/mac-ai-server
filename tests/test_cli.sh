@@ -49,6 +49,12 @@ assert_logged '^kit update.sh$'
 FAKE_KIT_RC=1 run update
 assert_eq "$?" 0 "kit update failure doesn't fail update"
 assert_ok "kit failure explained" has "status line update didn't work"
+# status line switched off: its update.sh doesn't run
+echo "MAS_STATUSLINE=no" > "$HOME/.mac-ai-server/config.env"
+run update
+assert_eq "$?" 0 "update ok with the status line off"
+assert_not_logged '^kit update.sh$'
+: > "$HOME/.mac-ai-server/config.env"
 rm -rf "$HOME/claude-statusline-kit"
 # git fails: stop, plain message, no install
 FAKE_GIT_RC=1 run update

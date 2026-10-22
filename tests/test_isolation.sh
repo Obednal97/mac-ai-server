@@ -32,6 +32,12 @@ resolved_ok() {  # resolved_ok <file-with-command-v-lines>
 for c in node npx uvx git; do command -v "$c"; done > "$OUT"
 assert_ok "node/npx/uvx/git resolve only to fakes or /usr/bin after t_setup" resolved_ok "$OUT"
 
+# With nothing set but t_setup, no binary a module may run resolves to a real install.
+for c in brew npx uvx node npm tailscale ollama claude git python3; do command -v "$c" || true; done > "$OUT"
+assert_fails "no tool resolves into /opt/homebrew or /usr/local" grep -E '^(/opt/homebrew|/usr/local)/' "$OUT"
+assert_eq "$( . "$REPO_DIR/lib/common.sh"; . "$REPO_DIR/modules/30-homebrew.sh"; _mas_brew_bin )" "$MAS_BREW_PREFIX/bin/brew" "default _mas_brew_bin is inside the throwaway prefix"
+case "${MAS_BREW_BIN:-}" in "$T_TMP"/*) _t_pass ;; *) _t_fail "MAS_BREW_BIN is a throwaway path (got '${MAS_BREW_BIN:-}')" ;; esac
+
 # Never run a module unless isolation holds: a broken t_setup must not reach the real system.
 if [ "$T_FAILS" -ne 0 ]; then
   echo "  isolation broken; not running any module"

@@ -2,6 +2,10 @@
 # One fake for every external command; symlinked under each name (see make-links.sh).
 name="$(basename "$0")"
 if [ -n "${FAKE_LOG:-}" ]; then echo "$name $*" >> "$FAKE_LOG"; fi
+# FAKE_PKILL_WATCH=<path>: pkill also logs whether that path still existed (checks quit-before-delete order)
+if [ "$name" = pkill ] && [ -n "${FAKE_PKILL_WATCH:-}" ] && [ -n "${FAKE_LOG:-}" ]; then
+  if [ -e "$FAKE_PKILL_WATCH" ]; then echo "pkill-saw present $*" >> "$FAKE_LOG"; else echo "pkill-saw gone $*" >> "$FAKE_LOG"; fi
+fi
 if [ "$name" = sudo ]; then
   while [ $# -gt 0 ]; do
     case "$1" in

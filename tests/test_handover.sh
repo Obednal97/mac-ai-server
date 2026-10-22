@@ -372,10 +372,10 @@ assert_ok "stale lock cleared" test -f "$HOME/.first-run/done-password"
 fresh
 HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1 >/dev/null
 TEMP="$(cat "$(STATE_DIR_T)/temp-password")"
-touch "$HOME/Downloads/old-file"
-mkdir -p "$HOME/Documents/sub"; touch "$HOME/Documents/sub/doc" "$HOME/Desktop/note.txt"
+touch "$HOME/Downloads/old-file" "$HOME/Downloads/Start Here.command"
+mkdir -p "$HOME/Documents/sub" "$HOME/Library/Safari"; touch "$HOME/Documents/sub/doc" "$HOME/Desktop/note.txt" "$HOME/Documents/Start Here.command"
 : > "$FAKE_LOG"
-HANDOVER_DELAY=0 ph --phase2
+FAKE_PKILL_WATCH="$HOME/Library/Safari" HANDOVER_DELAY=0 ph --phase2
 assert_eq "$?" 0 "phase 2 starts the daemon"
 PL="$MAS_SYSROOT/Library/LaunchDaemons/local.ai-handover.plist"
 RU="$MAS_SYSROOT/usr/local/libexec/ai-handover/local.ai-handover.sh"
@@ -388,6 +388,12 @@ assert_ok "Downloads emptied" test ! -e "$HOME/Downloads/old-file"
 assert_ok "Documents emptied from the session" test ! -e "$HOME/Documents/sub"
 assert_ok "Desktop emptied from the session" test ! -e "$HOME/Desktop/note.txt"
 assert_ok "Start Here kept on the desktop" test -x "$HOME/Desktop/Start Here.command"
+assert_ok "a file named Start Here is deleted from Downloads" test ! -e "$HOME/Downloads/Start Here.command"
+assert_ok "a file named Start Here is deleted from Documents" test ! -e "$HOME/Documents/Start Here.command"
+assert_ok "browser data deleted from the session" test ! -e "$HOME/Library/Safari"
+_q="$(lineno "^pkill .*-x Safari")"
+assert_ok "user side quits Safari" test -n "$_q"
+assert_logged '^pkill-saw present .*-x Safari'   # Safari was still on disk when the browser was quit
 assert_ok "plist passes keep-all-Wi-Fi off by default" grep -qF "<string>$ME</string><string>0</string><string>0</string>" "$PL"
 out_has "ACTION NEEDED: " "Tailscale admin action printed"
 assert_not_logged "$TEMP"

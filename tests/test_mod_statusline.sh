@@ -75,6 +75,16 @@ mkdir -p "$KIT"; echo keep > "$KIT/f"
 runfn mod_run; assert_eq "$?" 1 "non-git dir refused"
 assert_eq "$(cat "$KIT/f")" keep "non-git dir untouched"
 
+# no node (removed from the developer tools): warns, succeeds, installs nothing; check says info
+NB="$T_TMP/nonode"; mkdir -p "$NB"; cp "$FB/git" "$NB/git"
+rm -rf "$KIT"
+runfn mod_run "PATH=$NB:/usr/bin:/bin"; assert_eq "$?" 0 "missing node doesn't fail the run"
+assert_ok "missing node explained" has "Skipping the status line: it needs Node.js. Add node to your developer tools and re-run."
+assert_not_logged '^git clone'
+runfn mod_check "PATH=$NB:/usr/bin:/bin"; assert_eq "$?" 0 "check passes without node"
+assert_ok "check says info" grep -q '^info ' "$OUT"
+assert_fails "check doesn't say fail" grep -q '^fail ' "$OUT"
+
 # preview
 runfn print_statusline_preview
 assert_ok "preview heading" grep -qxF "Here's how the Claude Code status line looks:" "$OUT"
