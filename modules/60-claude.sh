@@ -42,6 +42,8 @@ mod_run() {
   model_e="$(_mas_cl_esc "$MAS_PRIMARY")"; ctx_e="$(_mas_cl_esc "$MAS_CONTEXT")"
   sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$bin/claude-local"
   sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$bin/chat"
+  # The everyday command: ~/.local/bin/mac-ai-server -> this checkout's mac-ai-server.
+  [ -f "$MAS_MOD_ROOT/mac-ai-server" ] && ln -sfn "$MAS_MOD_ROOT/mac-ai-server" "$bin/mac-ai-server"
   chmod +x "$bin/ai-motd" "$bin/claude-remote-loop" "$bin/ai-tmux-start" "$bin/claude-local" "$bin/chat"
 
   if [ -f "$HOME/.tmux.conf" ] && ! cmp -s "$HOME/.tmux.conf" "$MAS_MOD_ROOT/config/tmux.conf"; then

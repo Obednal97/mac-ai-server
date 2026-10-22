@@ -1,0 +1,253 @@
+#!/bin/bash
+# mac-ai-server: the everyday command. Run `mac-ai-server help` for the list.
+# Env (tests): MAS_INSTALL_SH, MAS_HANDOVER_SCRIPT, MAS_MODULES_DIR.
+
+# Find the repo even when run through the ~/.local/bin symlink.
+_src="${BASH_SOURCE[0]}"
+while [ -L "$_src" ]; do
+  _dir="$(cd "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  case "$_src" in /*) ;; *) _src="$_dir/$_src" ;; esac
+done
+MAS_ROOT="$(cd "$(dirname "$_src")" && pwd)"
+unset _src _dir
+
+PATH="$PATH:/opt/homebrew/bin"; export PATH   # appended, so a user's own tools win
+
+# Same config order as install.sh: defaults, then the user's file; anything already in the environment wins.
+_mas_env="$(export -p | grep '^declare -x MAS_')"
+# shellcheck source=config/defaults.env
+. "$MAS_ROOT/config/defaults.env"
+# shellcheck disable=SC1090,SC1091
+[ -f "$HOME/.mac-ai-server/config.env" ] && . "$HOME/.mac-ai-server/config.env"
+eval "$_mas_env"
+unset _mas_env
+# shellcheck source=lib/common.sh
+. "$MAS_ROOT/lib/common.sh"
+
+MAS_CONFIG="$HOME/.mac-ai-server/config.env"
+MAS_INSTALL_SH="${MAS_INSTALL_SH:-$MAS_ROOT/install.sh}"
+MAS_USER_MODEL="${MAS_MODEL:-}"   # what the user chose; empty means "follow the recommendation"
+MAS_DEFAULT_TOOLS="node pnpm uv git gh jq ripgrep"
+
+usage() {
+  cat <<'USAGE'
+mac-ai-server: look after your AI server
+
+  mac-ai-server update               Get the latest version and apply it
+  mac-ai-server doctor               Check that everything is working
+  mac-ai-server doctor --report      Same, with personal details removed, safe to share
+  mac-ai-server models               Show the AI models that fit this Mac
+  mac-ai-server models default <m>   Use a different model for claude-local and chat
+  mac-ai-server models add-fast      Download the quick helper model
+  mac-ai-server models remove <m>    Delete a downloaded model
+  mac-ai-server tools                Show, add or remove developer tools (tools add <name>)
+  mac-ai-server permissions          Walk through the macOS permissions
+  mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
+  mac-ai-server install [options]    Run the installer again (--plan shows what it would do)
+  mac-ai-server help                 Show this list
+USAGE
+}
+
+load_hw() {  # hardware + model plan
+  # shellcheck source=lib/detect.sh
+  . "$MAS_ROOT/lib/detect.sh"
+  # shellcheck source=lib/plan.sh
+  . "$MAS_ROOT/lib/plan.sh"
+}
+
+config_set() {  # config_set KEY VALUE (already quoted if needed)
+  local tmp
+  mkdir -p "$(dirname "$MAS_CONFIG")"
+  touch "$MAS_CONFIG"
+  tmp="$(mktemp "$MAS_CONFIG.XXXXXX")" || mas_die "Couldn't write $MAS_CONFIG."
+  grep -v "^$1=" "$MAS_CONFIG" > "$tmp"
+  printf '%s=%s\n' "$1" "$2" >> "$tmp"
+  mv "$tmp" "$MAS_CONFIG"
+}
+
+valid_tag() { case "$1" in ""|*[!A-Za-z0-9._:/@-]*) return 1 ;; *) return 0 ;; esac; }
+
+installed_default() {  # model claude-local currently uses, else empty
+  sed -n 's/.*CLAUDE_LOCAL_MODEL:-\([^}]*\)}.*/\1/p' "$HOME/.local/bin/claude-local" 2>/dev/null | head -1
+}
+
+downloaded_models() { ollama list 2>/dev/null | awk 'NR>1{print $1}'; }
+have_model() { downloaded_models | grep -Fxq "$1"; }
+
+# ---------------------------------------------------------------- commands
+cmd_update() {
+  local cur rec
+  if ! git -C "$MAS_ROOT" pull --ff-only; then
+    echo "Couldn't update: this copy of mac-ai-server has changes of its own, or has drifted from the original." >&2
+    echo "To see what's different, run: git -C \"$MAS_ROOT\" status" >&2
+    echo "Then undo the changes (git -C \"$MAS_ROOT\" stash) and run update again, or ask for help." >&2
+    return 1
+  fi
+  cur="$(installed_default)"
+  # Keep the model in use: an update must not quietly switch to (and download) a bigger one.
+  if [ -n "$cur" ] && [ -z "$MAS_USER_MODEL" ]; then
+    MAS_MODEL="$cur" "$MAS_INSTALL_SH" --yes || return 1
+  else
+    "$MAS_INSTALL_SH" --yes || return 1
+  fi
+  load_hw
+  rec="$( MAS_MODEL=""; mas_plan_model >/dev/null 2>&1 && echo "$MAS_PRIMARY" )"
+  if [ -z "$MAS_USER_MODEL" ] && [ -n "$cur" ] && [ -n "$rec" ] && [ "$cur" != "$rec" ]; then
+    echo
+    echo "Recommended model changed: $cur → $rec. Run: mac-ai-server models default $rec"
+  fi
+}
+
+# Escape a literal for use inside a sed regex.
+sed_lit() { printf '%s' "$1" | sed 's/[][\.*^$/+?(){}|]/\\&/g'; }
+
+cmd_doctor() {
+  local report=0 raw rc names n
+  [ "${1:-}" = "--report" ] && report=1
+  if [ "$report" = 0 ]; then
+    "$MAS_INSTALL_SH" --check
+    return $?
+  fi
+  load_hw
+  raw="$("$MAS_INSTALL_SH" --check 2>&1)"; rc=$?
+  echo "Chip: $MAS_CHIP"
+  echo "Memory: ${MAS_RAM_GB} GB"
+  echo "macOS: $MAS_MACOS"
+  echo
+  names="$(hostname -s 2>/dev/null; hostname 2>/dev/null; scutil --get LocalHostName 2>/dev/null
+           scutil --get ComputerName 2>/dev/null; id -un; printf '%s\n' "${MAS_HOSTNAME:-}"
+           networksetup -getairportnetwork "${MAS_WIFI_DEV:-en0}" 2>/dev/null | sed -n 's/^Current Wi-Fi Network: //p')"
+  # Strip colour codes and the home folder, then addresses, then every personal name we know.
+  raw="$(printf '%s\n' "$raw" | sed -e $'s/\033\\[[0-9;]*m//g' -e "s|$(sed_lit "$HOME")|~|g")"
+  raw="$(printf '%s\n' "$raw" | sed -E \
+    -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<ip>/g' \
+    -e 's/([0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}/<ip>/g' \
+    -e 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/<mac>/g' \
+    -e 's/[A-Za-z0-9-]+\.ts\.net/<tailnet-name>/g' \
+    -e 's/(SSID|Wi-Fi network)[:= ]+[^,;]*/\1 <hidden>/g')"
+  while IFS= read -r n; do
+    [ "${#n}" -ge 2 ] || continue
+    raw="$(printf '%s\n' "$raw" | sed -E "s/$(sed_lit "$n")/<redacted>/gI")"
+  done <<NAMES
+$names
+NAMES
+  printf '%s\n' "$raw"
+  return "$rc"
+}
+
+cmd_models() {
+  local sub="${1:-list}" tag opts size label mark dl flags cur
+  case "$sub" in
+    list)
+      load_hw
+      mas_plan_model || mas_die "Couldn't work out which model fits this Mac."
+      cur="$(installed_default)"; cur="${cur:-$MAS_PRIMARY}"
+      echo "AI models that fit this Mac (${MAS_RAM_GB} GB memory):"
+      opts="$(mas_model_options)"
+      dl="$(downloaded_models)"
+      while IFS="$(printf '\t')" read -r tag size label mark; do
+        [ -n "$tag" ] || continue
+        flags=""
+        [ "$tag" = "$cur" ] && flags="$flags [in use]"
+        printf '%s\n' "$dl" | grep -Fxq "$tag" && flags="$flags [downloaded]"
+        [ -n "$mark" ] && flags="$flags [recommended]"
+        printf '  %s (%s GB): %s%s\n' "$tag" "$size" "$label" "$flags"
+      done <<OPTS
+$opts
+OPTS
+      echo
+      echo "Switch with: mac-ai-server models default <name>"
+      ;;
+    default)
+      tag="${2:-}"
+      valid_tag "$tag" || mas_die "Give a model name, like: mac-ai-server models default qwen3.6:27b"
+      if ! have_model "$tag"; then
+        echo "Downloading $tag first. This can take a while."
+        ollama pull "$tag" || mas_die "Couldn't download $tag, so nothing was changed. Check the name and your internet connection."
+      fi
+      config_set MAS_MODEL "$tag"
+      MAS_MODEL="$tag" "$MAS_INSTALL_SH" --yes --only claude \
+        || mas_die "Saved $tag, but couldn't refresh claude-local and chat. Run: mac-ai-server install --only claude"
+      echo "claude-local and chat now use $tag."
+      ;;
+    add-fast)
+      load_hw
+      mas_plan_model || mas_die "Couldn't work out which model fits this Mac."
+      if [ -z "$MAS_FAST" ] || [ "$MAS_FAST" = "$MAS_PRIMARY" ]; then
+        echo "This Mac doesn't need a separate quick helper model."; return 0
+      fi
+      ollama pull "$MAS_FAST" || mas_die "Couldn't download $MAS_FAST. Check your internet connection and try again."
+      echo "Quick helper model $MAS_FAST is ready. Use it with: chat $MAS_FAST"
+      ;;
+    remove)
+      tag="${2:-}"
+      valid_tag "$tag" || mas_die "Give a model name, like: mac-ai-server models remove qwen3.6:27b"
+      cur="$(installed_default)"
+      if [ "$tag" = "$cur" ] || [ "$tag" = "$MAS_USER_MODEL" ]; then
+        mas_die "$tag is the model in use. Pick another first: mac-ai-server models default <name>"
+      fi
+      ollama rm "$tag"
+      ;;
+    *) mas_die "Unknown models option '$sub'. Try: list, default <name>, add-fast, remove <name>" ;;
+  esac
+}
+
+cmd_tools() {
+  local sub="${1:-list}" f="${2:-}" cur new t found
+  cur="${MAS_DEV_TOOLS-$MAS_DEFAULT_TOOLS}"
+  case "$sub" in
+    list) echo "Developer tools: $cur"; return 0 ;;
+    add|remove)
+      case "$f" in ""|*[!A-Za-z0-9@._+/-]*) mas_die "Give a tool name, like: mac-ai-server tools $sub ripgrep" ;; esac
+      new=""; found=0
+      for t in $cur; do
+        if [ "$t" = "$f" ]; then
+          found=1
+          [ "$sub" = remove ] && continue
+        fi
+        new="$new $t"
+      done
+      new="${new# }"
+      if [ "$sub" = add ] && [ "$found" = 0 ]; then new="${new:+$new }$f"; fi
+      config_set MAS_DEV_TOOLS "\"$new\""
+      MAS_DEV_TOOLS="$new" "$MAS_INSTALL_SH" --yes --only homebrew
+      ;;
+    *) mas_die "Unknown tools option '$sub'. Try: list, add <name>, remove <name>" ;;
+  esac
+}
+
+cmd_permissions() {
+  local mod="${MAS_MODULES_DIR:-$MAS_ROOT/modules}/95-permissions.sh"
+  [ -f "$mod" ] || mas_die "The permissions guide is missing. Run: mac-ai-server update"
+  load_hw
+  if [ "$MAS_MODE" = auto ]; then
+    if [ "$MAS_LAPTOP" = 1 ]; then MAS_MODE=laptop-daily; else MAS_MODE=desktop; fi
+  fi
+  export MAS_MODE
+  # shellcheck disable=SC1090  # chosen at run time
+  ( . "$mod"; mod_run; mod_check )
+}
+
+cmd_handover() {
+  local script="${MAS_HANDOVER_SCRIPT:-$MAS_ROOT/handover/prepare-handover.sh}" flag
+  case "${1:-}" in
+    phase1) flag=--phase1 ;; phase2) flag=--phase2 ;; local) flag="" ;; dry-run) flag=--dry-run ;;
+    *) mas_die "Say which step: phase1, phase2, local or dry-run. (dry-run shows what would happen and changes nothing.)" ;;
+  esac
+  [ -f "$script" ] || mas_die "Handover support isn't installed."
+  if [ -n "$flag" ]; then exec /bin/bash "$script" "$flag"; else exec /bin/bash "$script"; fi
+}
+
+cmd="${1:-help}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  help|-h|--help) usage ;;
+  update)      cmd_update "$@" ;;
+  doctor)      cmd_doctor "$@" ;;
+  models)      cmd_models "$@" ;;
+  tools)       cmd_tools "$@" ;;
+  permissions) cmd_permissions "$@" ;;
+  handover)    cmd_handover "$@" ;;
+  install)     exec "$MAS_INSTALL_SH" "$@" ;;
+  *) usage >&2; echo >&2; mas_die "Unknown command '$cmd'." ;;
+esac

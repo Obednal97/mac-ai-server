@@ -55,6 +55,7 @@ assert_fails "ai-motd names no model" grep -Eiq 'qwen|gemma|(^|[^o])llama|mistra
 assert_ok "ai-motd reads ollama list" grep -q 'ollama list' "$BIN/ai-motd"
 assert_ok "ai-motd reads ollama ps" grep -q 'ollama ps' "$BIN/ai-motd"
 assert_ok "ai-motd keeps RC detection" grep -q 'main:remote' "$BIN/ai-motd"
+assert_eq "$(readlink "$BIN/mac-ai-server")" "$REPO_DIR/mac-ai-server" "mac-ai-server symlinked to the repo command"
 # model change on re-run
 runfn mod_run MAS_PRIMARY=other:7b MAS_CONTEXT=32768
 assert_ok "claude-local updated" grep -qF '${CLAUDE_LOCAL_MODEL:-other:7b}' "$BIN/claude-local"
