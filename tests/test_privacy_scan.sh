@@ -9,7 +9,7 @@ SCAN="$TESTS_DIR/privacy-scan.sh"
 R="$T_TMP/repo"
 mkdir -p "$R"
 git -C "$R" init -q
-git -C "$R" config user.name t; git -C "$R" config user.email t@example.invalid
+git -C "$R" config user.name t; git -C "$R" config user.email t@x
 printf 'hello\nssh root@192.168.2.1\nhotspot 172.20.10.2\ndoc 203.0.113.9\nmail noreply@anthropic.com\n' > "$R/clean.txt"
 git -C "$R" add clean.txt
 git -C "$R" commit -qm "clean commit"
@@ -25,9 +25,9 @@ plant() {
   case "$out" in *"$2"*) _t_fail "$1: output must mask the matched text" ;; *) _t_pass ;; esac
   git -C "$R" rm -qf planted.txt
 }
-plant email "contact: someone@gmail.test"
-plant tailscale "host 100.101.102.103"
-plant tailscale-low "host 100.64.0.1"
+plant email "contact: someone@""gmail.test"
+plant tailscale "host 100.""101.102.103"
+plant tailscale-low "host 100.""64.0.1"
 plant artifact "see https://claude.ai/""artifact/abc"
 plant session "https://claude.ai/""code/session_x"
 plant anthropic-key "key sk-""ant-api03-xyz"
@@ -43,7 +43,7 @@ assert_ok "noreply github allowed" bash "$SCAN" "$R"
 git -C "$R" rm -qf ok.txt
 
 # docs/superpowers is excluded
-mkdir -p "$R/docs/superpowers"; printf 'a@b.test\n' > "$R/docs/superpowers/p.md"
+mkdir -p "$R/docs/superpowers"; printf 'a@%sb.test\n' '' > "$R/docs/superpowers/p.md"
 git -C "$R" add docs; assert_ok "docs/superpowers excluded" bash "$SCAN" "$R"
 
 # commit messages are scanned
@@ -52,7 +52,7 @@ assert_fails "commit message flagged" bash "$SCAN" "$R"
 
 # private blocklist: used when present, never echoed
 R2="$T_TMP/repo2"; mkdir -p "$R2"; git -C "$R2" init -q
-git -C "$R2" config user.name t; git -C "$R2" config user.email t@example.invalid
+git -C "$R2" config user.name t; git -C "$R2" config user.email t@x
 printf 'my Secret-Name here\n' > "$R2/f.txt"; git -C "$R2" add f.txt; git -C "$R2" commit -qm x
 assert_ok "no blocklist: passes" bash "$SCAN" "$R2"
 printf '# comment\n\nsecret-name\n' > "$HOME/.mac-ai-server-private-blocklist"
