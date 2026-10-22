@@ -22,7 +22,7 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
   - Every Mac installs security updates automatically.
 - **Agent tools.** Web search, a web page reader and a hidden browser work even with the local model, plus three helpful Claude Code plugins.
 - **Status line.** An optional bar at the bottom of Claude Code showing cost, context, git and account, from [claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit).
-- **Room for more people** (optional). Friends, family or a team can have their own accounts, with their own files and Claude login, while sharing the models, plugins and skills (see [docs/multi-user.md](docs/multi-user.md)).
+- **Room for more people** (optional). Friends, family or a team can have their own accounts, with their own files and Claude login, while sharing the models, plugins and skills. Each new person gets an info pack to connect from anywhere, through Tailscale sharing (their own account, never yours) or WireGuard (no account at all). See [docs/multi-user.md](docs/multi-user.md).
 - **Phone Wi-Fi setup.** Moved the Mac somewhere new, with no screen? Plug in your phone and pick the Wi-Fi from a web page.
 - **One everyday command:** `mac-ai-server`, to update, check, or switch models.
 
@@ -149,7 +149,7 @@ mac-ai-server models add-fast      Download the quick helper model
 mac-ai-server models remove <m>    Delete a downloaded model
 mac-ai-server tools                Show, add or remove developer tools (tools add <name>)
 mac-ai-server permissions          Walk through the macOS permissions
-mac-ai-server users                Show the accounts; users add <name> / users remove <name>
+mac-ai-server users                Show the accounts; users add <name> [--wireguard] / card / remove
 mac-ai-server token set            Log Claude Code in without the keychain (claude setup-token)
 mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
 mac-ai-server install [options]    Run the installer again (--plan shows what it would do)

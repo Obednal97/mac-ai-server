@@ -541,6 +541,8 @@ SH_DROP="$MAS_SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/
 SH_MKT="$MAS_SYSROOT/Library/Application Support/mac-ai-server/shared-claude"
 mkdir -p "$(dirname "$SH_DROP")" "$SH_MKT/x" "$MAS_SYSROOT/usr/local/bin"; echo '{}' > "$SH_DROP"
 touch "$MAS_SYSROOT/usr/local/bin/claude-local" "$MAS_SYSROOT/usr/local/bin/chat" "$MAS_SYSROOT/etc/sudoers.d/90-$ME-nopasswd"
+mkdir -p "$MAS_SYSROOT/etc/wireguard" "$H/.mac-ai-server/users/sam"; touch "$MAS_SYSROOT/etc/wireguard/wg0.conf" "$H/.mac-ai-server/users/sam/card.txt"
+touch "$MAS_SYSROOT/Library/LaunchDaemons/local.wireguard.plist"
 HANG="$T_TMP/hang"; mkdir -p "$HANG"
 printf '#!/bin/bash\necho "tailscale $*" >> "$FAKE_LOG"\n[ "${1:-}" = logout ] && sleep 30\nexit 0\n' > "$HANG/tailscale"; chmod +x "$HANG/tailscale"
 PATH="$HANG:$PATH" HANDOVER_TIMEOUT=2 FAKE_DSCL_HOME="$H" ph --root-run "$ME" 0
@@ -548,6 +550,9 @@ assert_eq "$(tail -1 "$FAKE_LOG")" "shutdown -h now" "shutdown still happens aft
 out_has "timed out after 2s" "the stuck step is logged"
 assert_ok "setup-token login wiped" test ! -e "$H/.mac-ai-server/claude-token"
 assert_ok "shared plugins and skills wiped" test ! -e "$SH_DROP" -a ! -e "$SH_MKT"
+assert_ok "WireGuard keys and daemon wiped" test ! -e "$MAS_SYSROOT/etc/wireguard" -a ! -e "$MAS_SYSROOT/Library/LaunchDaemons/local.wireguard.plist"
+assert_logged '^launchctl bootout system/local.wireguard'
+assert_ok "people's info packs wiped" test ! -e "$H/.mac-ai-server/users"
 assert_ok "shared launchers wiped" test ! -e "$MAS_SYSROOT/usr/local/bin/claude-local" -a ! -e "$MAS_SYSROOT/usr/local/bin/chat"
 n_sud="$(grep -n 'rm -f .*sudoers.d/.*-nopasswd' "$OUT" | head -1 | cut -d: -f1)"; n_wipe="$(grep -n -- "-- removing the owner's data" "$OUT" | head -1 | cut -d: -f1)"
 assert_ok "password-free sudo removed before the data wipe" test "${n_sud:-99}" -lt "${n_wipe:-0}"

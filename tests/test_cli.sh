@@ -171,7 +171,7 @@ printf '#!/bin/sh\necho "install.sh $*" >> "$FAKE_LOG"\n' > "$FB/install.sh"
 run install --plan; assert_logged '^install.sh --plan'
 
 
-# --- users: multi-user accounts (fake sysadminctl/id; nothing real is created)
+# --- users: multi-user accounts (fake sysadminctl/id/dscl; nothing real is created)
 UD="$T_TMP/users"; mkdir -p "$UD"
 cat > "$FB/sysadminctl" <<'FAKE'
 #!/bin/bash
@@ -184,31 +184,101 @@ case "${1:-}" in -*|"") exec /usr/bin/id "$@" ;; esac
 [ -e "$FAKE_UD/$1" ] && { echo "uid=502($1)"; exit 0; }
 exec /usr/bin/id "$@"
 FAKE
+# dscl: with only a datasource it reads commands on stdin (recorded, never logged), like the real one
+cat > "$FB/dscl" <<'FAKE'
+#!/bin/bash
+if [ $# -eq 1 ]; then
+  while IFS= read -r l; do printf '%s\n' "$l" >> "$FAKE_DSCL_STDIN"; echo "stdin:dscl ${l%% *}" >> "$FAKE_LOG"; done
+  echo "${FAKE_DSCL_REPLY:-Goodbye}"; exit 0
+fi
+exec "$FAKE_DIR/dscl" "$@"
+FAKE
 printf '#!/bin/sh\necho "createhomedir $*" >> "$FAKE_LOG"\n' > "$FB/createhomedir"
-chmod +x "$FB/sysadminctl" "$FB/id" "$FB/createhomedir"
-export FAKE_UD="$UD"
+mkdir -p "$MAS_BREW_PREFIX/bin"
+printf '#!/bin/sh\necho "tailscale $*" >> "$FAKE_LOG"\necho "{\\"Self\\": {\\"DNSName\\": \\"ai-mini.example-tailnet.ts.net.\\"}}"\n' > "$MAS_BREW_PREFIX/bin/tailscale"
+printf '#!/bin/sh\necho "qrencode $*" >> "$FAKE_LOG"\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && echo PNG > "$2"; shift; done\n' > "$MAS_BREW_PREFIX/bin/qrencode"
+ln -sf "$TESTS_DIR/fakes/wg" "$MAS_BREW_PREFIX/bin/wg"
+chmod +x "$FB/sysadminctl" "$FB/id" "$FB/dscl" "$FB/createhomedir" "$MAS_BREW_PREFIX/bin/tailscale" "$MAS_BREW_PREFIX/bin/qrencode"
+export FAKE_UD="$UD" FAKE_DIR="$TESTS_DIR/fakes" FAKE_DSCL_STDIN="$T_TMP/dscl-stdin" FAKE_OUT_scutil=ai-mini
+PACKS="$HOME/.mac-ai-server/users"
+TSN=ai-mini.example-tailnet.ts.net
 run users add "Bad Name"
 assert_eq "$?" 1 "users add rejects a bad name"
 run users add root
 assert_ok "users add refuses an existing account" has "already an account called root"
-# multi-user off: turned on first (config + installer), then the account
-FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/samhome" run users add sam "Sam Example" </dev/null
+run users add sam --frob
+assert_ok "unknown option refused" has "Unknown option '--frob'"
+# Tailscale (the default). Multi-user off: turned on first (installer, then config), then the account.
+: > "$FAKE_DSCL_STDIN"
+FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/samhome" run users add sam "Sam Example" <<< "https://login.tailscale.com/admin/invite/abc123"
 assert_eq "$?" 0 "users add ok"
 assert_ok "multi-user mode saved" grep -qx 'MAS_MULTIUSER=yes' "$HOME/.mac-ai-server/config.env"
 assert_logged '^install.sh --yes --only claude,multiuser'
-assert_logged '^sysadminctl -addUser sam -fullName Sam Example -password -$'
+assert_logged '^sysadminctl -addUser sam -fullName Sam Example -password '
+TEMP="$(cat "$PACKS/sam/temp-password")"
+assert_ok "temporary password generated" grep -Eq '^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$' <<< "$TEMP"
+assert_ok "password set through dscl's stdin" grep -qxF "passwd \"/Users/sam\" \"$TEMP\"" "$FAKE_DSCL_STDIN"
+assert_not_logged "$TEMP"
 assert_logged '^sudo chmod 700 .*/samhome'
 assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_ssh'
 assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_screensharing'
 assert_logged '^curl -fsSL https://claude.ai/install.sh'
 assert_ok "first-login password change armed" grep -q 'mas-new-password' "$HOME/.zprofile"
-assert_ok "says how to connect" has "ssh sam@"
-# multi-user already on: no installer run
+assert_eq "$(stat -f %Lp "$PACKS/sam")" 700 "info pack folder is private"
+assert_eq "$(stat -f %Lp "$PACKS/sam/card.txt")" 600 "card is private"
+assert_ok "card has the account" grep -q 'Your account: *sam' "$PACKS/sam/card.txt"
+assert_ok "card has the temporary password" grep -qF "$TEMP" "$PACKS/sam/card.txt"
+assert_ok "card has the invite link" grep -qF 'https://login.tailscale.com/admin/invite/abc123' "$PACKS/sam/card.txt"
+assert_ok "card has the full Tailscale name" grep -qF "ssh sam@$TSN" "$PACKS/sam/card.txt"
+assert_ok "card says to use their own account" grep -q 'YOUR OWN account' "$PACKS/sam/card.txt"
+assert_ok "card printed" has "YOUR ACCOUNT ON THE AI MAC"
+# no link yet: added later with users card --link
 FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/kimhome" MAS_MULTIUSER=yes run users add kim </dev/null
 assert_not_logged '^install.sh'
-assert_logged '^sysadminctl -addUser kim -fullName kim -password -$'
-# remove: needs the name typed back; only people's accounts, never yours or an administrator's
-FAKE_OUT_dscl=$'sam 502\nkim 503\n'"$(id -un) 501"; export FAKE_OUT_dscl
+assert_ok "how to add the link later" has "mac-ai-server users card kim --link"
+assert_ok "card without a link says it comes separately" grep -q "you will get the link separately" "$PACKS/kim/card.txt"
+run users card kim --link https://login.tailscale.com/admin/invite/xyz
+assert_ok "link added to the card" grep -qF 'invite/xyz' "$PACKS/kim/card.txt"
+run users card kim --link nope
+assert_eq "$?" 1 "a non-link is refused"
+run users card nobody-here
+assert_eq "$?" 1 "no card for an unknown name"
+# a failed password set stops with the fix
+FAKE_DSCL_REPLY="DS Error: -14009" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/xhome" MAS_MULTIUSER=yes run users add xan </dev/null
+assert_eq "$?" 1 "password failure stops"
+assert_ok "names the fix" has "sudo passwd xan"
+
+# WireGuard: refused until set up; then a key, a config file and a QR code in the info pack
+run users add wes --wireguard </dev/null
+assert_ok "WireGuard must be set up first" has "WireGuard isn't set up"
+export MAS_SYSROOT="$T_TMP/root"; WGC="$MAS_SYSROOT/etc/wireguard/wg0.conf"
+mkdir -p "$(dirname "$WGC")"
+printf '%s\n' "[Interface]" "Address = 10.77.0.1/24" "ListenPort = 51820" "PrivateKey = SERVERKEY=" "" \
+  "[Peer]" "# user: old" "PublicKey = PUB-OLD" "AllowedIPs = 10.77.0.2/32" > "$WGC"
+FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/weshome" MAS_MULTIUSER=yes MAS_WIREGUARD=yes MAS_WG_ENDPOINT=home.example.com run users add wes --wireguard </dev/null
+assert_eq "$?" 0 "WireGuard user added"
+WC="$PACKS/wes/wes-ai-mini.conf"
+assert_eq "$(stat -f %Lp "$WC")" 600 "their WireGuard file is private"
+assert_ok "next free address" grep -qx 'Address = 10.77.0.3/32' "$WC"
+assert_ok "endpoint and port" grep -qx 'Endpoint = home.example.com:51820' "$WC"
+assert_ok "only this Mac through the tunnel" grep -qx 'AllowedIPs = 10.77.0.1/32' "$WC"
+assert_ok "server's public key" grep -qx 'PublicKey = PUB-SERVERKEY=' "$WC"
+assert_ok "peer added to the server" grep -qx '# user: wes' "$WGC"
+assert_ok "QR code made" test -s "$PACKS/wes/wes-ai-mini.png"
+assert_ok "card has WireGuard steps" grep -q 'Import tunnel' "$PACKS/wes/card.txt"
+assert_ok "card connects over the tunnel" grep -qF 'ssh wes@10.77.0.1' "$PACKS/wes/card.txt"
+assert_not_logged 'PRIV'
+assert_not_logged '^tailscale'
+MAS_WIREGUARD=yes run users card wes
+assert_ok "re-shown WireGuard card keeps the address" grep -qF 'ssh wes@10.77.0.1' "$PACKS/wes/card.txt"
+FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/zhome" MAS_MULTIUSER=yes MAS_WIREGUARD=yes run users add zed --wireguard </dev/null
+assert_ok "refused without an endpoint" has "WireGuard isn't set up"
+assert_not_logged 'addUser zed'
+
+# list and remove: only people's accounts, never yours or an administrator's; WireGuard key revoked
+FAKE_OUT_dscl=$'sam 502\nkim 503\nwes 504\n'"$(id -un) 501"; export FAKE_OUT_dscl
+FAKE_GROUP_MEMBER_RC=67 run users
+assert_ok "list shows the method" has "wes (standard, via wireguard)"
 run users remove nobody <<< nobody
 assert_ok "system accounts can't be removed" has "system accounts can't be removed"
 assert_not_logged 'deleteUser'
@@ -218,11 +288,17 @@ assert_not_logged 'deleteUser'
 FAKE_GROUP_MEMBER_RC=67 run users remove sam <<< "sam"
 assert_eq "$?" 0 "remove confirmed"
 assert_logged '^sysadminctl -deleteUser sam'
+assert_fails "info pack deleted" test -e "$PACKS/sam"
+assert_ok "reminds to stop the Tailscale share" has "stop sharing it"
+FAKE_GROUP_MEMBER_RC=67 MAS_WIREGUARD=yes run users remove wes <<< "wes"
+assert_fails "WireGuard peer revoked" grep -q '# user: wes' "$WGC"
+assert_ok "other peers kept" grep -qx '# user: old' "$WGC"
+assert_ok "server settings kept" grep -qx 'PrivateKey = SERVERKEY=' "$WGC"
 run users remove "$(id -un)" <<< "$(id -un)"
 assert_ok "can't remove yourself" has "your own account"
 FAKE_GROUP_MEMBER_RC=0 run users remove kim <<< kim
 assert_ok "can't remove an administrator" has "is an administrator"
-unset FAKE_OUT_dscl
+unset FAKE_OUT_dscl MAS_SYSROOT
 run users frob
 assert_eq "$?" 1 "unknown users option fails"
 

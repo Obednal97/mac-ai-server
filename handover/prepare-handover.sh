@@ -196,9 +196,17 @@ if [ "$MODE" = root ]; then
   # The new owner's first-run step 6 shares their own again if they want it.
   for p in "$SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json" \
            "$SYSROOT/Library/Application Support/mac-ai-server/shared-claude" \
-           "$SYSROOT/usr/local/bin/claude-local" "$SYSROOT/usr/local/bin/chat"; do
+           "$SYSROOT/usr/local/bin/claude-local" "$SYSROOT/usr/local/bin/chat" \
+           "$H/.mac-ai-server/users"; do
     probe "$p"; { [ -e "$p" ] || [ -L "$p" ]; } && r rm -rf "$p"
   done
+  # WireGuard (docs/multi-user.md): the tunnel, the Mac's key and everyone's access. The new
+  # owner's network is a different one; they set it up again if they want it.
+  if [ -e "$SYSROOT/Library/LaunchDaemons/local.wireguard.plist" ] || [ -e "$SYSROOT/etc/wireguard" ]; then
+    r tmo 20 launchctl bootout system/local.wireguard
+    [ -f "$SYSROOT/etc/wireguard/wg0.conf" ] && r tmo 20 wg-quick down "$SYSROOT/etc/wireguard/wg0.conf"
+    r rm -rf "$SYSROOT/Library/LaunchDaemons/local.wireguard.plist" "$SYSROOT/etc/wireguard"
+  fi
 
   log "-- Tailscale"
   if [ "$DRY_RUN" = 1 ]; then log "   status: $("$TAILSCALE" status 2>&1 | head -1)"; fi
