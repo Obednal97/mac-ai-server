@@ -42,6 +42,20 @@ assert_not_logged '^brew install'
 runfn "$BREW" mod_run MAS_DEV_TOOLS=""
 assert_installed "tmux mosh htop" "empty list installs server tools"
 
+# --- E: MAS_DEV_TOOLS unset: the default comes from config/defaults.env
+want="$(. "$REPO_DIR/config/defaults.env"; printf '%s' "$MAS_DEV_TOOLS")"
+: > "$FAKE_LOG"
+( unset MAS_DEV_TOOLS; . "$REPO_DIR/lib/common.sh"; . "$BREW"; mod_run ) >"$OUT" 2>"$OUT.err"
+assert_installed "$want tmux mosh htop" "unset list uses defaults.env"
+assert_fails "no hard-coded tools list in the module" grep -qF '"node pnpm uv git gh jq ripgrep"' "$BREW"
+
+# --- E: duplicates are installed and checked once
+runfn "$BREW" mod_run MAS_DEV_TOOLS="git tmux git node"
+assert_installed "git node tmux mosh htop" "duplicates installed once"
+runfn "$BREW" mod_check MAS_DEV_TOOLS="git tmux git" FAKE_OUT_brew=$'tmux\nmosh\nhtop'
+assert_eq "$(grep -c 'brew install git' "$OUT")" 1 "a duplicate is reported once"
+assert_eq "$(grep -c '^ok tmux' "$OUT")" 1 "a server tool listed again is reported once"
+
 # --- check
 runfn "$BREW" mod_check MAS_DEV_TOOLS="node pnpm" FAKE_OUT_brew=$'node\npnpm\ntmux\nmosh\nhtop'
 assert_eq "$?" 0 "check ok"

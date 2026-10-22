@@ -2,10 +2,24 @@
 # Homebrew and the command-line tools the kit needs. Everything after this module relies on it.
 # Tests: MAS_BREW_BIN (brew binary), MAS_BREW_PREFIX (prefix put on PATH).
 
+MAS_MOD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _MAS_SERVER_TOOLS="tmux mosh htop"
-_MAS_DEV_TOOLS_DEFAULT="node pnpm uv git gh jq ripgrep"
-# Developer tools are user-editable (MAS_DEV_TOOLS); an empty value means none.
-_mas_dev_tools() { printf '%s' "${MAS_DEV_TOOLS-$_MAS_DEV_TOOLS_DEFAULT}"; }
+# Developer tools are user-editable (MAS_DEV_TOOLS); an empty value means none. When it isn't set
+# at all, the default comes from config/defaults.env (the one place it is written down).
+_mas_dev_tools() {
+  if [ -n "${MAS_DEV_TOOLS+set}" ]; then printf '%s' "$MAS_DEV_TOOLS"; return; fi
+  # shellcheck source=../config/defaults.env
+  ( . "$MAS_MOD_ROOT/config/defaults.env"; printf '%s' "${MAS_DEV_TOOLS-}" )
+}
+# _mas_all_tools: server tools, then developer tools, each name once.
+_mas_all_tools() {
+  local t out=" "
+  # shellcheck disable=SC2086  # the lists are space-separated words
+  for t in $_MAS_SERVER_TOOLS $(_mas_dev_tools); do
+    case "$out" in *" $t "*) ;; *) out="$out$t " ;; esac
+  done
+  printf '%s' "$out"
+}
 
 _mas_brew_bin() { printf '%s' "${MAS_BREW_BIN:-/opt/homebrew/bin/brew}"; }
 
@@ -35,8 +49,7 @@ mod_run() {
   PATH="$HOME/.local/bin:$PATH"; export PATH
   local listed t want=""
   listed="$(brew list --formula 2>/dev/null)"
-  # shellcheck disable=SC2086  # the lists are space-separated words
-  for t in $_MAS_SERVER_TOOLS $(_mas_dev_tools); do
+  for t in $(_mas_all_tools); do
     printf '%s\n' "$listed" | grep -Fxq -- "$t" || want="$want $t"
   done
   # shellcheck disable=SC2086
@@ -52,8 +65,7 @@ mod_check() {
   fi
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"
   listed="$("$bin" list --formula 2>/dev/null)"
-  all="$_MAS_SERVER_TOOLS $(_mas_dev_tools)"
-  # shellcheck disable=SC2086
+  all="$(_mas_all_tools)"
   for t in $all; do
     if printf '%s\n' "$listed" | grep -Fxq -- "$t"; then
       echo "ok $t is installed"
