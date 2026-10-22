@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 t_setup
 trap t_teardown EXIT
-export MAS_SYSROOT="$T_TMP/root" MAS_FW=socketfilterfw MAS_TS_SETTLE=0 MAS_TS_WAIT=3 MAS_TS_POLL=1
+export MAS_SYSROOT="$T_TMP/root" MAS_FW=socketfilterfw MAS_TS_SETTLE=0 MAS_TS_WAIT=3 MAS_TS_POLL=1 MAS_BREW_PREFIX="$T_TMP/nobrew"
 mkdir -p "$MAS_SYSROOT/etc"
 REMOTE="$REPO_DIR/modules/20-remote-access.sh"
 TS="$REPO_DIR/modules/35-tailscale.sh"
@@ -63,6 +63,24 @@ FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHC
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "check fails when drop-in missing"
 
+# the old kit's drop-in (100-ai-server.conf, same settings) counts as installed: check passes, run doesn't add ours
+kit="$MAS_SYSROOT/etc/ssh/sshd_config.d/100-ai-server.conf"
+mkdir -p "$(dirname "$kit")"
+printf '%s\n' "PermitRootLogin no" "ClientAliveInterval 60" "ClientAliveCountMax 5" > "$kit"
+FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
+  FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
+assert_eq "$?" 0 "check accepts the kit's identical drop-in"
+runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
+assert_fails "run doesn't duplicate the kit's drop-in" test -e "$conf"
+# a kit drop-in with different settings doesn't count
+printf 'PermitRootLogin yes\n' > "$kit"
+FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 \
+  FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
+assert_eq "$?" 1 "check rejects a different kit drop-in"
+runfn "$REMOTE" mod_run MAS_HOSTNAME="My AI Mac"
+assert_ok "run writes ours when the kit's differs" grep -q '^ClientAliveCountMax 5' "$conf"
+rm -rf "$MAS_SYSROOT/etc/ssh"
+
 # --- tailscale
 runfn "$TS" mod_applies MAS_TAILSCALE=no; assert_fails "skipped when no" test "$?" -eq 0
 runfn "$TS" mod_applies MAS_TAILSCALE=yes; assert_eq "$?" 0 "applies when yes"
@@ -89,5 +107,13 @@ assert_eq "$?" 0 "tailscale check passes"
 FAKE_TS_STATUS_RC=1 runfn "$TS" mod_check MAS_TAILSCALE=yes
 assert_eq "$?" 1 "tailscale check fails signed out"
 assert_ok "fail names the fix" has "fail .* — "
+
+# Homebrew's bin isn't on the caller's PATH (each module runs in a fresh subshell): check finds it anyway
+pfx="$T_TMP/tspfx"; mkdir -p "$pfx/bin"
+# shellcheck disable=SC2016  # literal script body
+printf '#!/bin/sh\n[ "$1" = ip ] && echo 192.0.2.9\nexit 0\n' > "$pfx/bin/tailscale"; chmod +x "$pfx/bin/tailscale"
+FAKE_TS_STATUS_RC=1 runfn "$TS" mod_check MAS_TAILSCALE=yes MAS_BREW_PREFIX="$pfx"
+assert_eq "$?" 0 "tailscale check uses Homebrew's tailscale"
+assert_ok "reports the brew tailscale's address" has "ok Tailscale is connected (192.0.2.9)"
 
 t_summary

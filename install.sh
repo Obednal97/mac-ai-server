@@ -133,6 +133,14 @@ resolve_laptop_mode() {
   esac
 }
 
+# True if the recommended model is already in `ollama list` (a re-run downloads nothing).
+# Homebrew's bin is appended, so an ollama already on PATH wins.
+primary_downloaded() {
+  [ -n "${MAS_PRIMARY:-}" ] || return 1
+  PATH="$PATH:${MAS_BREW_PREFIX:-/opt/homebrew}/bin" ollama list 2>/dev/null \
+    | awk 'NR>1{print $1}' | grep -Fxq -- "$MAS_PRIMARY"
+}
+
 # Prints the plan in plain English. Sets MAS_DISK_OK=1/0.
 print_plan() {
   local total free need kind opts tag size label mark
@@ -160,9 +168,14 @@ EOF2
   echo "  (Set MAS_MODEL in $MAS_LOG_DIR/config.env to pick a different one.)"
   echo
   total="$(awk -v a="${MAS_PRIMARY_GB:-0}" 'BEGIN { printf "%.1f", a }')"
+  if primary_downloaded; then
+    total=0.0
+    echo "Total download: none for AI models ($MAS_PRIMARY is already downloaded), plus a few GB of tools."
+  else
+    echo "Total download: about $total GB of AI models, plus a few GB of tools."
+  fi
   need="$(awk -v t="$total" 'BEGIN { printf "%d", t + 10.999 }')"  # models plus about 10 GB for tools
   free="${MAS_FREE_GB:-$(mas_free_gb)}"
-  echo "Total download: about $total GB of AI models, plus a few GB of tools."
   if [ "$free" -ge "$need" ]; then
     MAS_DISK_OK=1
     echo "Disk space: $free GB free, about $need GB needed. That's enough."

@@ -1,7 +1,9 @@
 #!/bin/bash
 # Tailscale as a system daemon (Homebrew formula; runs at boot, before login).
 # Runs after 30-homebrew. Env: MAS_TAILSCALE, MAS_HOSTNAME.
-# Tests: MAS_TS_SETTLE (seconds after daemon start), MAS_TS_WAIT (sign-in wait), MAS_TS_POLL.
+# Tests: MAS_TS_SETTLE (seconds after daemon start), MAS_TS_WAIT (sign-in wait), MAS_TS_POLL,
+# MAS_BREW_PREFIX. Each module runs in its own subshell, so Homebrew's bin goes on PATH here too.
+_mas_ts_path() { PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"; export PATH; }
 
 mod_applies() { [ "${MAS_TAILSCALE:-yes}" = yes ]; }
 
@@ -14,6 +16,7 @@ _mas_ts_host() {
 mod_run() {
   local host log pid waited=0 maxwait poll url="" shown=""
   host="$(_mas_ts_host)"; maxwait="${MAS_TS_WAIT:-180}"; poll="${MAS_TS_POLL:-2}"
+  _mas_ts_path
   mas_step "Tailscale (system daemon: runs at boot, before login)"
   command -v brew >/dev/null 2>&1 || { mas_warn "Homebrew is missing; Tailscale skipped."; return 1; }
   brew install tailscale
@@ -49,6 +52,7 @@ mod_run() {
 }
 
 mod_check() {
+  _mas_ts_path
   if tailscale status >/dev/null 2>&1; then
     echo "ok Tailscale is connected ($(tailscale ip -4 2>/dev/null | head -1))"
   else

@@ -29,6 +29,13 @@ assert_ok "plan shows download" has_out "Total download"
 assert_ok "plan checks disk" has_out "Disk space"
 assert_not_logged '^sudo'
 assert_ok "download counts primary only" has_out "about 31.7 GB"
+# primary already downloaded (re-run on a set-up Mac): nothing to download
+FAKE_OUT_ollama=$'NAME ID SIZE MODIFIED\nqwen3.8:27b-mxfp8 abc 31 GB 1 day ago' run --plan
+assert_eq "$(rc)" 0 "plan with model present exits 0"
+assert_ok "no model download when already present" has_out "none for AI models (qwen3.8:27b-mxfp8 is already downloaded)"
+assert_fails "no 31.7 GB when present" has_out "about 31.7 GB"
+FAKE_OUT_ollama=$'NAME ID SIZE MODIFIED\nqwen3.8:27b-nvfp4 abc 18 GB 1 day ago' run --plan
+assert_ok "other tag doesn't count as the primary" has_out "about 31.7 GB"
 assert_fails "helper model not in download" has_out "55.3"
 assert_ok "helper is an optional offer" has_out "offered at the end, not downloaded now"
 assert_fails "gen 5 lists no GGUF q8_0" has_out "q8_0"

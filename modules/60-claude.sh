@@ -15,6 +15,10 @@ _mas_cl_zprofile_count() { grep -cE 'ai-motd|# mac-ai-server: ssh' "$HOME/.zprof
 # Escape a value for the replacement side of sed (& | \).
 _mas_cl_esc() { printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'; }
 
+# _mas_cl_put <src> <dest>: copy only when different. Scripts like claude-remote-loop may be running,
+# and bash reads a running script as it goes, so rewriting an identical file is not harmless.
+_mas_cl_put() { cmp -s "$1" "$2" || cp "$1" "$2"; }
+
 mod_applies() { true; }
 
 mod_run() {
@@ -38,10 +42,14 @@ mod_run() {
   fi
 
   mkdir -p "$bin" "$HOME/projects" "$(dirname "$agent")"
-  cp "$MAS_MOD_ROOT/bin/ai-motd" "$MAS_MOD_ROOT/bin/claude-remote-loop" "$MAS_MOD_ROOT/bin/ai-tmux-start" "$bin/"
+  local f tmp
+  for f in ai-motd claude-remote-loop ai-tmux-start; do _mas_cl_put "$MAS_MOD_ROOT/bin/$f" "$bin/$f"; done
   model_e="$(_mas_cl_esc "$MAS_PRIMARY")"; ctx_e="$(_mas_cl_esc "$MAS_CONTEXT")"
-  sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$bin/claude-local"
-  sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$bin/chat"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/mas-cl.XXXXXX")" || return 1
+  sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$tmp"
+  _mas_cl_put "$tmp" "$bin/claude-local"
+  sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$tmp"
+  _mas_cl_put "$tmp" "$bin/chat"
   # The everyday command: ~/.local/bin/mac-ai-server -> this checkout's mac-ai-server.
   [ -f "$MAS_MOD_ROOT/mac-ai-server" ] && ln -sfn "$MAS_MOD_ROOT/mac-ai-server" "$bin/mac-ai-server"
   chmod +x "$bin/ai-motd" "$bin/claude-remote-loop" "$bin/ai-tmux-start" "$bin/claude-local" "$bin/chat"
@@ -51,8 +59,16 @@ mod_run() {
   fi
   cp "$MAS_MOD_ROOT/config/tmux.conf" "$HOME/.tmux.conf"
 
-  sed "s|__HOME__|$HOME|g" "$MAS_MOD_ROOT/launchagents/local.ai-tmux.plist" > "$agent"
-  mas_reload_agent local.ai-tmux "$agent" || rc=1
+  # Reload the agent only if its plist changed or it isn't loaded: a bootout can take the live
+  # tmux session (and everything running in it) down with it.
+  sed "s|__HOME__|$HOME|g" "$MAS_MOD_ROOT/launchagents/local.ai-tmux.plist" > "$tmp"
+  if cmp -s "$tmp" "$agent" && launchctl print "gui/$(id -u)/local.ai-tmux" >/dev/null 2>&1; then
+    echo "tmux LaunchAgent unchanged and loaded; not reloaded."
+  else
+    cp "$tmp" "$agent"
+    mas_reload_agent local.ai-tmux "$agent" || rc=1
+  fi
+  rm -f "$tmp"
 
   touch "$HOME/.zprofile" "$HOME/.zshrc"
   if [ "$(_mas_cl_zprofile_count)" -eq 0 ]; then

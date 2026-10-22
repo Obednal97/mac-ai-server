@@ -82,6 +82,21 @@ assert_ok "agent plist has real home" grep -qF "$HOME/.local/bin/ai-tmux-start" 
 assert_fails "agent plist has no placeholder" grep -q '__HOME__' "$AG"
 assert_logged '^launchctl bootstrap gui/[0-9]+ .*local.ai-tmux.plist'
 assert_ok "projects dir" test -d "$HOME/projects"
+# unchanged plist and agent loaded: no bootout/bootstrap (a reload could take tmux down)
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 0 "run ok with agent loaded"
+assert_not_logged '^launchctl bootout gui/[0-9]+/local.ai-tmux'
+assert_not_logged '^launchctl bootstrap gui/'
+assert_ok "says not reloaded" has "unchanged and loaded; not reloaded"
+# changed plist: reloaded even when loaded
+echo '<plist/>' > "$AG"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_logged '^launchctl bootout gui/[0-9]+/local.ai-tmux'
+assert_ok "changed plist rewritten" grep -qF "$HOME/.local/bin/ai-tmux-start" "$AG"
+# identical scripts are not rewritten (claude-remote-loop may be running)
+before="$(stat -f %m:%i "$BIN/claude-remote-loop") $(stat -f %m "$BIN/claude-local")"; sleep 1
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(stat -f %m:%i "$BIN/claude-remote-loop") $(stat -f %m "$BIN/claude-local")" "$before" "identical scripts untouched"
 
 # --- zprofile / zshrc blocks added once
 assert_eq "$(grep -c 'mac-ai-server: ssh' "$HOME/.zprofile")" 1 "ssh block once after 3 runs"

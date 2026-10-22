@@ -8,10 +8,22 @@ _mas_ra_host() {
   printf '%s' "${h:-ai-mini}"
 }
 _mas_ra_conf() { printf '%s' "${MAS_SYSROOT:-}/etc/ssh/sshd_config.d/100-mac-ai-server.conf"; }
+# The old hand-run kit wrote the same settings as 100-ai-server.conf.
+_mas_ra_kit_conf() { printf '%s' "${MAS_SYSROOT:-}/etc/ssh/sshd_config.d/100-ai-server.conf"; }
 _mas_ra_fw() { printf '%s' "${MAS_FW:-/usr/libexec/ApplicationFirewall/socketfilterfw}"; }
 
 _mas_ra_want_conf() {
   printf '%s\n' "PermitRootLogin no" "ClientAliveInterval 60" "ClientAliveCountMax 5"
+}
+
+# The drop-in counts as installed if ours, or the old kit's, holds exactly the wanted settings.
+_mas_ra_conf_ok() {
+  local want f
+  want="$(_mas_ra_want_conf)"
+  for f in "$(_mas_ra_conf)" "$(_mas_ra_kit_conf)"; do
+    [ "$(cat "$f" 2>/dev/null)" = "$want" ] && return 0
+  done
+  return 1
 }
 
 mod_applies() { return 0; }
@@ -30,7 +42,7 @@ mod_run() {
     sudo launchctl enable system/com.openssh.sshd
     sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true; }
   want="$(_mas_ra_want_conf)"
-  if [ "$(cat "$conf" 2>/dev/null)" != "$want" ]; then
+  if ! _mas_ra_conf_ok; then
     sudo mkdir -p "$(dirname "$conf")"
     printf '%s\n' "$want" | sudo tee "$conf" >/dev/null
   fi
@@ -56,7 +68,7 @@ mod_check() {
   else echo "fail hostname is '${got:-unset}', want $host — run: sudo scutil --set LocalHostName $host"; rc=1; fi
   if sudo -n systemsetup -getremotelogin 2>/dev/null | grep -qi "On"; then echo "ok Remote Login (SSH) is on"
   else echo "fail Remote Login (SSH) is off — run: sudo systemsetup -setremotelogin on"; rc=1; fi
-  if [ "$(cat "$(_mas_ra_conf)" 2>/dev/null)" = "$(_mas_ra_want_conf)" ]; then echo "ok sshd drop-in installed"
+  if _mas_ra_conf_ok; then echo "ok sshd drop-in installed"
   else echo "fail sshd drop-in missing — re-run the installer: bash install.sh --only remote-access"; rc=1; fi
   if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then echo "ok Screen Sharing is on"
   else echo "fail Screen Sharing is off — run: sudo launchctl enable system/com.apple.screensharing"; rc=1; fi
