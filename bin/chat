@@ -1,0 +1,6 @@
+#!/bin/bash
+# Chat with the local model in the terminal, with its reasoning hidden.
+#   chat                 default model        chat <model>   another installed model
+#   Type /bye to exit, /? for help.
+export PATH="/opt/homebrew/bin:$PATH"
+exec ollama run --hidethinking "${1:-__MODEL__}"

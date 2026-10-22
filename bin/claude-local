@@ -1,0 +1,18 @@
+#!/bin/bash
+# Claude Code running on this Mac's local model (via Ollama) instead of Anthropic's servers.
+#   claude-local                       start with the default local model
+#   CLAUDE_LOCAL_MODEL=other claude-local
+# Your normal `claude` command and login are untouched.
+MODEL="${CLAUDE_LOCAL_MODEL:-__MODEL__}"
+export ANTHROPIC_BASE_URL="http://localhost:11434"
+export ANTHROPIC_AUTH_TOKEN="ollama"
+export ANTHROPIC_API_KEY=""
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
+export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+# Must match OLLAMA_CONTEXT_LENGTH in ~/Library/LaunchAgents/local.ollama.plist (filled in by the installer)
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=__CONTEXT__
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+exec claude "$@"

@@ -1,0 +1,9 @@
+#!/bin/bash
+# Starts the persistent tmux session "main" (plus the Remote Control window) inside the
+# desktop login session, so Claude Code can read its login from the keychain even when
+# you attach over SSH. Run at login by ~/Library/LaunchAgents/local.ai-tmux.plist.
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH" LANG="${LANG:-en_US.UTF-8}"
+mkdir -p "$HOME/projects"
+tmux has-session -t main 2>/dev/null || tmux new-session -d -s main -c "$HOME/projects"
+tmux list-windows -t main -F '#W' | grep -qx remote ||
+  tmux new-window -d -t main -n remote -c "$HOME/projects" "$HOME/.local/bin/claude-remote-loop"

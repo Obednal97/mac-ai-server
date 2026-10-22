@@ -1,0 +1,11 @@
+#!/bin/bash
+# Keeps Claude Code Remote Control running, so you can start and steer sessions on this Mac
+# from the Claude mobile app or claude.ai/code. Started at login inside tmux (window "remote").
+# One-time setup: run `cd ~/projects && claude`, accept the trust prompt and log in.
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+cd "$HOME/projects" || exit 1
+while true; do
+  claude remote-control
+  echo "Remote Control stopped ($(date '+%H:%M')). Retrying in 60s..."
+  sleep 60
+done

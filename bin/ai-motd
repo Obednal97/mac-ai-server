@@ -1,0 +1,55 @@
+#!/bin/bash
+# Welcome screen shown on SSH login (from ~/.zprofile). Run it any time with: ai-motd
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+b=$'\033[1m'; d=$'\033[2m'; c=$'\033[36m'; g=$'\033[32m'; y=$'\033[33m'; r=$'\033[0m'
+
+NAME="$(scutil --get LocalHostName 2>/dev/null)"
+TS="$(tailscale ip -4 2>/dev/null | head -1)"
+FREE="$(df -h / | awk 'NR==2{print $4}')"
+UP="$(uptime | sed -E 's/.*up +//; s/, +[0-9]+ users?.*//; s/,$//')"
+MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"
+LOADED="$(ollama ps 2>/dev/null | awk 'NR>1{print $1}' | paste -sd, -)"
+
+printf '\n  %s%s%s  %s·  up %s  ·  %s free%s\n' "$b" "$NAME" "$r" "$d" "$UP" "$FREE" "${TS:+  ·  tailscale $TS}$r"
+cat <<EOF
+
+  ${c}claude${r}          Claude Code with Anthropic's models ${d}(best quality)${r}
+  ${c}claude-local${r}    Claude Code on this Mac's model ${d}(private, offline, slower)${r}
+  ${c}chat${r}            quick chat with the local model
+
+  ${d}Both claude commands share projects, memory and history.${r}
+  ${d}Switch any time: run either one with${r} --continue ${d}in a project folder.${r}
+
+  ${c}tmux new -As main${r}   keep work running after you disconnect ${d}(Ctrl-b d to detach)${r}
+EOF
+
+# Context-sensitive hints
+if tmux has-session 2>/dev/null; then
+  printf '  %s↳ tmux is running: %s%s\n' "$g" "$(tmux ls -F '#S' 2>/dev/null | paste -sd, -)" "$r"
+fi
+if [ -n "$MODEL" ]; then
+  if [ -n "$LOADED" ]; then STATUS="$LOADED (loaded, ready)"; else STATUS="$MODEL (loads on first use, ~10s)"; fi
+  printf '\n  %sLocal model: %s%s\n' "$d" "$STATUS" "$r"
+else
+  printf '\n  %sNo local model installed yet. Run: mac-ai-server install --only models%s\n' "$y" "$r"
+fi
+LOGGED_IN=1; TRUSTED=0
+security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ] || LOGGED_IN=0
+python3 -c 'import json,os,sys; p=json.load(open(os.path.expanduser("~/.claude.json"))).get("projects",{}); sys.exit(0 if p.get(os.path.expanduser("~/projects"),{}).get("hasTrustDialogAccepted") else 1)' 2>/dev/null && TRUSTED=1
+if [ "$LOGGED_IN" = 0 ]; then
+  printf '  %sClaude Code: not logged in yet. Run: tmux new -As main, then claude, and follow the login link.%s\n' "$y" "$r"
+elif [ "$TRUSTED" = 0 ]; then
+  printf '  %sRemote Control (use Claude Code from your phone): one-time setup, run  cd ~/projects && claude  and accept the prompt.%s\n' "$y" "$r"
+else
+  # Most recent status line in the Remote Control window (an unanswered prompt ends in "[y/N]")
+  RC="$(tmux capture-pane -p -t main:remote 2>/dev/null | grep -E '\[y/N\] *$|Connected|stopped|Error' | tail -1)"
+  if printf '%s' "$RC" | grep -q '\[y/N\] *$'; then
+    printf '  %sRemote Control is waiting for one confirmation: run  tmux attach -t main:remote  and type y, then Ctrl-b d.%s\n' "$y" "$r"
+  elif printf '%s' "$RC" | grep -q 'Connected'; then
+    printf '  %sRemote Control: on. Start sessions here from the Claude app or claude.ai/code.%s\n' "$d" "$r"
+  else
+    printf '  %sRemote Control: starting (check with  tmux attach -t main:remote).%s\n' "$d" "$r"
+  fi
+fi
+[ -f "$HOME/WELCOME.txt" ] && printf '  %sMore: cat ~/WELCOME.txt%s\n' "$d" "$r"
+printf '\n'
