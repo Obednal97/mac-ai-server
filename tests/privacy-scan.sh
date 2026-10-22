@@ -67,7 +67,10 @@ files_hits="$(wc -l < "$TMP/files.out" | tr -d ' ')"
 
 : > "$TMP/commits.out"
 for c in $(git log --format=%H 2>/dev/null); do
-  git log -1 --format=%B "$c" | scan_stream "commit-${c:0:8}" >> "$TMP/commits.out"
+  # GitHub's own merge line names the repo owner, who is public anyway (it's in the repo's address):
+  # blank it, keeping the line count so reported line numbers still match.
+  git log -1 --format=%B "$c" | sed -E 's/^(Merge pull request #[0-9]+ from )[^/ ]+\/.*/\1<owner>\/<branch>/' \
+    | scan_stream "commit-${c:0:8}" >> "$TMP/commits.out"
 done
 cat "$TMP/commits.out"
 commit_hits="$(wc -l < "$TMP/commits.out" | tr -d ' ')"
