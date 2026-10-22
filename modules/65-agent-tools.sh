@@ -72,7 +72,14 @@ mod_run() {
   mas_step "Agent tools (browser, web fetch, web search, plugins)"
   command -v claude >/dev/null 2>&1 || { mas_warn "Claude Code isn't installed (claude not found); agent tools skipped. Run: mac-ai-server install --only claude"; return 1; }
   command -v brew >/dev/null 2>&1 || { mas_warn "Homebrew is missing; agent tools skipped."; return 1; }
-  brew install node uv || { mas_warn "Couldn't install Node and uv with Homebrew (brew install node uv failed). Check your internet connection, then re-run the installer."; return 1; }
+  # Safety net: 30-homebrew installs these via MAS_DEV_TOOLS, but a trimmed list must not break us.
+  local have need="" t
+  have="$(brew list --formula 2>/dev/null)"
+  for t in node uv; do printf '%s\n' "$have" | grep -Fxq -- "$t" || need="$need $t"; done
+  if [ -n "$need" ]; then
+    # shellcheck disable=SC2086
+    brew install $need || { mas_warn "Couldn't install$need with Homebrew (brew install$need failed). Check your internet connection, then re-run the installer."; return 1; }
+  fi
   # shellcheck disable=SC2034  # read by _mas_at_ensure
   LIST="$(_mas_at_list)"
   [ -z "$LIST" ] && ! claude mcp list >/dev/null 2>&1 && { mas_warn "claude mcp list failed; is Claude Code working? Try: claude --version"; return 1; }
