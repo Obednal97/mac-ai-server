@@ -164,5 +164,87 @@ class Status(Base):
         self.assertIn("result", d)
 
 
+class Confirmation(Base):
+    """After a successful join the page stays up for an hour, with the Mac's new address."""
+    def ok_result(self):
+        netsetupd.State.result, netsetupd.State.result_at = {"ok": True, "error": "", "ssid": "MyWiFi"}, netsetupd.time.time()
+
+    def test_success_keeps_the_page_for_an_hour(self):
+        netsetupd.State.mode = "tether"
+        self.ok_result()
+        netsetupd.set_mode("idle")
+        delay = netsetupd.threading.Timer.call_args[0][0]
+        self.assertEqual(delay, netsetupd.CONFIRM_SECS)
+        self.assertEqual(netsetupd.CONFIRM_SECS, 3600)
+
+    def test_no_success_two_minutes(self):
+        netsetupd.State.mode = "tether"
+        netsetupd.set_mode("idle")
+        self.assertEqual(netsetupd.threading.Timer.call_args[0][0], 120)
+
+    def test_end_of_confirmation_clears_the_result(self):
+        self.ok_result(); netsetupd.State.idle_since = 5
+        netsetupd.unserve_if_still_idle(5)
+        self.assertIsNone(netsetupd.State.result)
+
+    def test_status_has_the_new_address(self):
+        self.ok_result(); netsetupd.serve()
+        net = {"ip": "192.0.2.20", "router": "192.0.2.1", "host": "ai-mini"}
+        with mock.patch.object(netsetupd, "network_info", lambda: net):
+            d = json.loads(self.get("/api/status")[1])
+        self.assertEqual(d["net"], net)
+        self.assertGreater(d["confirm_until"], netsetupd.time.time() + 3000)
+
+    def test_no_address_before_a_join(self):
+        netsetupd.State.mode = "tether"; netsetupd.serve()
+        d = json.loads(self.get("/api/status")[1])
+        self.assertIsNone(d["net"])
+        self.assertEqual(d["confirm_until"], 0)
+
+    def test_network_info(self):
+        out = {
+            "networksetup": "Hardware Port: Wi-Fi\nDevice: en1\n",
+            "ifconfig": "en1: flags=8863\n\tether 02:00:00:aa:bb:cc\n\tinet 192.0.2.20 netmask 0xffffff00\n",
+            "scutil": "ai-mini\n",
+            "/opt/homebrew/bin/tailscale": json.dumps({"Self": {"Online": True, "DNSName": "ai-mini.example.ts.net.",
+                                                                "TailscaleIPs": ["ts-ip.test", "fd7a::5"]}}),
+        }
+        def sh(*c, **k):
+            if c[0] == "ipconfig":
+                return {"getifaddr": "192.0.2.20\n", "router": "192.0.2.1\n", "subnet_mask": "255.255.255.0\n",
+                        "domain_name_server": "192.0.2.1\n"}.get(c[-1] if c[1] == "getoption" else c[1], "")
+            return out.get(c[0], "")
+        with mock.patch.object(netsetupd, "sh", sh):
+            n = netsetupd.network_info()
+        self.assertEqual(n["ip"], "192.0.2.20"); self.assertEqual(n["router"], "192.0.2.1")
+        self.assertEqual(n["subnet"], "255.255.255.0"); self.assertEqual(n["mac"], "02:00:00:aa:bb:cc")
+        self.assertEqual(n["tailscale_name"], "ai-mini.example.ts.net"); self.assertEqual(n["tailscale_ip"], "ts-ip.test")
+
+    def test_network_info_without_wifi_address(self):
+        with mock.patch.object(netsetupd, "sh", lambda *c, **k: "Hardware Port: Wi-Fi\nDevice: en1\n" if c[0] == "networksetup" else ""):
+            self.assertIsNone(netsetupd.network_info())
+
+
+class OnlyFromThePhone(Base):
+    """Once the Mac is online, the page on the home network may only show the result."""
+    def test_join_refused_from_the_network_after_setup(self):
+        netsetupd.State.result, netsetupd.State.result_at = {"ok": True, "ssid": "MyWiFi"}, netsetupd.time.time()
+        netsetupd.serve()   # idle, confirmation showing; the test client is 127.0.0.1, not the cable
+        self.assertEqual(self.post("/api/join", {"ssid": "Other", "password": "x"}), 403)
+        self.assertEqual(netsetupd.State.joining, "")
+        self.assertEqual(json.loads(self.get("/api/networks")[1]), [])
+
+    def test_join_allowed_while_offline(self):
+        netsetupd.State.mode = "tether"; netsetupd.serve()
+        with mock.patch.object(netsetupd, "join", lambda *a: None):
+            self.assertEqual(self.post("/api/join", {"ssid": "MyWiFi", "password": "x"}), 202)
+        netsetupd.State.joining = ""
+
+    def test_the_phone_cable_range(self):
+        self.assertTrue(netsetupd.from_tether("172.20.10.3"))
+        self.assertFalse(netsetupd.from_tether("192.168.1.20"))
+        self.assertFalse(netsetupd.from_tether("127.0.0.1"))
+
+
 if __name__ == "__main__":
     unittest.main()

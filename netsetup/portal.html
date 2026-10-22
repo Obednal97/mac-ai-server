@@ -119,6 +119,15 @@ input:read-only { color:var(--muted); }
 #done ol { margin:.9rem 0 0; padding-left:1.4rem; display:grid; gap:.5rem; }
 #done li::marker { font-weight:600; color:var(--muted); }
 #done .ssh { margin-top:1rem; font-size:.88rem; color:var(--muted); }
+#netinfo { margin:1rem 0 0; display:grid; grid-template-columns:auto 1fr; gap:.35rem 1rem; font-size:.92rem; }
+#netinfo dt { color:var(--muted); }
+#netinfo dd { margin:0; font:.95em ui-monospace,Menlo,monospace; overflow-wrap:anywhere; -webkit-user-select:all; user-select:all; }
+#done .tip { margin-top:.9rem; font-size:.88rem; color:var(--muted); }
+#likely { margin-top:.9rem; padding:.75rem .85rem; border-radius:10px; border:1px solid var(--rule); background:var(--surface); }
+#likely .sub { color:var(--muted); font-size:.88rem; margin-top:.4rem; }
+a.primary { text-decoration:none; }
+#likely ol { margin:.6rem 0 0; padding-left:1.4rem; display:grid; gap:.4rem; }
+#likely .check { margin-top:.9rem; }
 #done code { display:block; margin-top:.2rem; font:.95em ui-monospace,Menlo,monospace; color:var(--ink); -webkit-user-select:all; user-select:all; overflow-wrap:anywhere; }
 
 .spin {
@@ -187,7 +196,21 @@ input:read-only { color:var(--muted); }
           <li>Unplug the cable. You can turn off Personal Hotspot.</li>
           <li>Carry on with step 2 on your setup card.</li>
         </ol>
-        <p class="ssh" id="ssh" hidden>If you use Terminal: <code id="sshcmd"></code></p>
+        <p class="ssh" id="ssh" hidden>If you use Terminal: <code id="sshcmd"></code><code id="sshcmd2" hidden></code></p>
+        <dl id="netinfo" hidden></dl>
+        <p class="tip" id="nettip" hidden>To keep this address, reserve it for the __MODEL__ in your router’s settings (often called DHCP reservation), using the Wi-Fi hardware address above.</p>
+        <p class="tip" id="confirmnote" hidden></p>
+      </div>
+      <div id="likely" role="status" aria-live="polite" hidden>
+        <p class="main"><strong id="likelytitle"></strong></p>
+        <p class="sub">That usually means it has joined the Wi-Fi and switched over to it, which turns the cable connection off. To check:</p>
+        <ol>
+          <li>Turn off Personal Hotspot and unplug the cable.</li>
+          <li>Put your phone on <strong id="likelyssid"></strong> too.</li>
+          <li>Tap <strong>Check</strong>. If it worked, you’ll see <strong>Connected</strong> and the __MODEL__’s new address.</li>
+        </ol>
+        <p class="check"><a class="primary" id="checklink" href="/">Check</a></p>
+        <p class="sub">If it doesn’t open, the __MODEL__ didn’t join: plug the cable back in, turn Personal Hotspot on and open this page again.</p>
       </div>
     </div>
   </div>
@@ -199,15 +222,19 @@ const $ = id => document.getElementById(id);
 const S = {
   nets: null, scanError: false, scanning: false, scanStart: 0,
   chosen: null,           // {ssid, open, typed}
-  joining: false, joinSsid: "", joinStart: 0, poll: null, misses: 0,
+  joining: false, joinSsid: "", joinStart: 0, poll: null, misses: 0, lastSeen: 0, likely: false, net: null,
   done: false, host: "", user: ""
 };
 const q = s => "“" + s + "”";
 const secs = t => Math.max(0, Math.round((Date.now() - t) / 1000));
 
 // When the Mac is already online the daemon answers /api/* with a small HTML page instead of JSON.
+// Every request gives up after 4 s: when the cable link drops, a request can otherwise hang forever.
 async function getJSON(url, opts) {
-  const r = await fetch(url, Object.assign({ cache: "no-store" }, opts));
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 4000);
+  let r;
+  try { r = await fetch(url, Object.assign({ cache: "no-store", signal: ctl.signal }, opts)); }
+  finally { clearTimeout(t); }
   const text = await r.text();
   try { return { r, data: JSON.parse(text) }; } catch (e) {}
   if (/online/i.test(text)) return { r, online: true };
@@ -370,7 +397,43 @@ function setJoining(on, ssid) {
   syncRows();
 }
 
+function showLikely() {
+  if (S.likely || S.done) return;
+  S.likely = true;
+  $("jmsg").hidden = true; $("join").hidden = true;
+  $("likelytitle").textContent = "The __MODEL__ stopped answering over the cable after it started joining " + q(S.joinSsid) + ".";
+  $("likelyssid").textContent = q(S.joinSsid);
+  $("checklink").href = "http://" + (S.host || "ai-mini") + ".local/";
+  $("likely").hidden = false;
+  header("joining", "Probably on " + S.joinSsid);
+  $("likely").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function showNet(n) {   // the Mac's new address and how to reach it, as label/value rows
+  const dl = $("netinfo");
+  if (!n) { dl.hidden = true; return; }
+  const rows = [["IP address", n.ip], ["Name on the network", n.host ? n.host + ".local" : ""],
+    ["Router", n.router], ["Subnet mask", n.subnet], ["DNS", n.dns], ["Wi-Fi hardware address", n.mac],
+    ["Tailscale name", n.tailscale_name], ["Tailscale address", n.tailscale_ip]];
+  dl.innerHTML = "";
+  for (const [k, v] of rows) {
+    if (!v) continue;
+    const dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = k; dd.textContent = v; dl.append(dt, dd);
+  }
+  dl.hidden = false;
+  $("nettip").hidden = !n.mac;
+  if (n.ip) {
+    const user = S.user || "admin";
+    $("sshcmd").textContent = "ssh " + user + "@" + n.ip;
+    $("sshcmd2").textContent = n.host ? "ssh " + user + "@" + n.host + ".local" : "";
+    $("sshcmd2").hidden = !n.host;
+    $("ssh").hidden = false;
+  }
+}
+
 function joiningText() {
+  if (S.likely) return;
   const t = secs(S.joinStart);
   if (S.misses >= 2) {
     say("Waiting for the __MODEL__ to answer…", "", { busy: true, tick: t,
@@ -423,6 +486,20 @@ function showDone(ssid) {   // ssid null: the Mac reports it is online, without 
     $("sshcmd").textContent = "ssh " + (S.user || "admin") + "@" + S.host + ".local";
     $("ssh").hidden = false;
   }
+  S.likely = false; $("likely").hidden = true;
+  showNet(S.net);
+  if (S.confirmUntil) {
+    const until = new Date(S.confirmUntil * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("confirmnote").textContent = "This page stays available until " + until + ", on this Wi-Fi too.";
+    $("confirmnote").hidden = false;
+  }
+  $("rescan").hidden = true; $("hidden").hidden = true;
+  emptyState();
+  if (ssid) {
+    $("listtitle").textContent = "Your Wi-Fi";
+    $("intro1").textContent = "The __MODEL__ is on Wi-Fi now. You can unplug the cable.";
+    $("intro2").hidden = true;
+  }
   $("done").hidden = false;
   header("ok", ssid ? "On Wi-Fi: " + ssid : "Online");
   if (!ssid) {   // opened when there was nothing to do: the intro would contradict the page
@@ -442,14 +519,22 @@ async function status() {
   let res;
   try {
     res = await getJSON("/api/status");
-    S.misses = 0;
+    S.misses = 0; S.lastSeen = Date.now();
   } catch (e) {
-    if (S.joining) { S.misses++; joiningText(); }
+    if (S.joining) {
+      S.misses++;
+      // Quiet for 20 s in the middle of a join, with no failure reported: most likely it joined
+      // and the cable link went down with the switch. Say so, and keep listening in case it's back.
+      if (Date.now() - (S.lastSeen || S.joinStart) > 20000) showLikely(); else joiningText();
+    }
     return;
   }
+  if (S.likely) { S.likely = false; $("likely").hidden = true; $("join").hidden = false; }
   if (res.online) { stopPolling(); setJoining(false); showDone(S.joinSsid || null); return; }
   const s = res.data || {};
   setHost(s.host); if (s.user) S.user = s.user;
+  if (s.net) S.net = s.net;
+  if (s.confirm_until) S.confirmUntil = s.confirm_until;
   if (s.joining) {
     if (!S.joining && !S.done) adopt(s.joining);   // e.g. the page was reloaded mid-join
     return;
@@ -517,6 +602,8 @@ load(false);
   if (res.online) return showDone(null);
   const s = res.data || {};
   setHost(s.host); if (s.user) S.user = s.user;
+  if (s.net) S.net = s.net;
+  if (s.confirm_until) S.confirmUntil = s.confirm_until;
   if (s.joining) return adopt(s.joining);
   if (s.result && s.result.ok) {   // only success is shown; a stale failure would confuse a fresh visit
     const later = () => S.scanning ? setTimeout(later, 300) : showDone(s.result.ssid);
