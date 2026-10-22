@@ -91,6 +91,17 @@ assert_ok "old tmux.conf backed up" grep -qx old "$HOME/.tmux.conf.bak"
 rm -f "$HOME/.tmux.conf.bak"
 runfn mod_run "${PLAN[@]}"
 assert_fails "identical tmux.conf not backed up" test -e "$HOME/.tmux.conf.bak"
+assert_ok "status bar lists the shortcuts" grep -q "status-right .*Ctrl-b then: .*d leave" "$HOME/.tmux.conf"
+assert_ok "running session reloads the config" grep -q '^tmux source-file .*/.tmux.conf' "$FAKE_LOG"
+# the real tmux accepts the file (in a throwaway server)
+if command -v /opt/homebrew/bin/tmux >/dev/null 2>&1; then
+  TS="mas-test-$$"
+  assert_ok "real tmux loads tmux.conf" /opt/homebrew/bin/tmux -L "$TS" -f "$REPO_DIR/config/tmux.conf" new -d -x 150 -y 10
+  assert_ok "long hints on a wide window" sh -c '/opt/homebrew/bin/tmux -L "$1" display -p "#{T:status-right}" | grep -q "n/p next/prev"' _ "$TS"
+  /opt/homebrew/bin/tmux -L "$TS" resize-window -x 80 2>/dev/null
+  assert_ok "short hints on a narrow window" sh -c '/opt/homebrew/bin/tmux -L "$1" display -p "#{T:status-right}" | grep -qx "Ctrl-b d: leave (keeps running) · Ctrl-b ?: keys "' _ "$TS"
+  /opt/homebrew/bin/tmux -L "$TS" kill-server 2>/dev/null
+fi
 AG="$HOME/Library/LaunchAgents/local.ai-tmux.plist"
 assert_ok "agent plist written" test -f "$AG"
 assert_ok "agent plist has real home" grep -qF "$HOME/.local/bin/ai-tmux-start" "$AG"

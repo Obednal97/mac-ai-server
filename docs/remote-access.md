@@ -75,6 +75,7 @@ You'll see the **welcome screen**:
 
 **SSH logins go straight into tmux.** After the welcome screen, every SSH login with a terminal attaches to the `main` session (a block at the end of `~/.zprofile`). If the connection drops, everything keeps running, and the next login puts you back where you were.
 - **Ctrl-b** then **d** leaves the session running and returns to a plain shell; `exit` there disconnects. `tmux new -As main` goes back in.
+- The status bar along the bottom lists the shortcuts (all start with **Ctrl-b**): **d** leave, **c** new window, **n**/**p** next and previous window, **w** pick from a list, **[** scroll back (**q** stops), **?** every key. On a narrow window it shows only the first and last. The mouse wheel scrolls too.
 - It's skipped while the first-run assistant is unfinished, for logins without a terminal (`scp`, `ssh host <command>`, editors' remote connections), and when you connect with `LC_NOTMUX=1 ssh <user>@<name>` (a Mac's `ssh` passes `LC_*` variables on by default).
 - It never lands in the Remote Control window: if `remote` was the last one shown, it switches to the first window.
 - To turn it off: `MAS_TMUX_ATTACH=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`.

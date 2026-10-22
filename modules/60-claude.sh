@@ -87,6 +87,8 @@ mod_run() {
     cp "$HOME/.tmux.conf" "$HOME/.tmux.conf.bak"
   fi
   cp "$MAS_MOD_ROOT/config/tmux.conf" "$HOME/.tmux.conf"
+  # A running session only reads it at start: load it there too (status bar, keys)
+  tmux has-session 2>/dev/null && { tmux source-file "$HOME/.tmux.conf" || mas_warn "tmux didn't accept ~/.tmux.conf; the running session keeps its old settings."; }
 
   # Reload the agent only if its plist changed or it isn't loaded: a bootout can take the live
   # tmux session (and everything running in it) down with it.
