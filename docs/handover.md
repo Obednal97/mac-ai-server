@@ -157,7 +157,7 @@ The card is plain text for the new owner. It explains:
    - or, with a monitor, double-click **Start Here** on the desktop.
 4. **Follow the setup assistant** (about 5 minutes).
 
-The card currently says "Mac mini" on every model.
+The card uses the Mac's own model name ("Mac mini", "Mac Studio", "MacBook Pro"…, or just "Mac"), and says where that model's power button is: underneath near the back on a Mac mini, on the back of a Mac Studio, the top-right key (Touch ID) on a MacBook. The first-run assistant uses the model name too.
 
 ## The first-run assistant
 

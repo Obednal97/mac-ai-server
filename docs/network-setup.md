@@ -50,7 +50,7 @@ http://172.20.10.2
 3. **Tap Join.** "Joining … This usually takes 10 to 30 seconds. Keep the cable plugged in."
 4. **"Connected to <name>."** "The Mac mini will use this Wi-Fi from now on, even after a restart." Unplug the cable; you can turn off Personal Hotspot.
 
-The page says "Mac mini" on every model; it works the same on a Mac Studio or a MacBook.
+The page uses the Mac's own model name ("Mac mini", "Mac Studio", "MacBook Pro"…), or just "Mac" if it can't tell. The examples here use "Mac mini".
 
 If something goes wrong, the page says so in plain words:
 

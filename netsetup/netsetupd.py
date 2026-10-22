@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Network setup fallback for a headless Mac mini (root LaunchDaemon local.netsetup).
+"""Network setup fallback for a headless Mac (root LaunchDaemon local.netsetup).
 
 Checked every 10 s:
   1. Online over Wi-Fi or Ethernet (saved networks join by themselves)  -> do nothing
@@ -165,7 +165,27 @@ def join(ssid, password):
 
 
 # ---------------------------------------------------------------- setup page
-PAGE = open(os.path.join(HERE, "portal.html")).read()
+PAGE = open(os.path.join(HERE, "portal.html")).read()   # __MODEL__ is replaced by the model name
+MODEL = None
+
+
+def model_name():
+    """The Mac's model name ("Mac mini", "Mac Studio", "MacBook Pro"), or "Mac". Read once."""
+    global MODEL
+    if MODEL is None:
+        name = ""
+        for line in sh("system_profiler", "SPHardwareDataType").splitlines():
+            if line.strip().startswith("Model Name:"):
+                name = line.split(":", 1)[1].strip()
+                break
+        # Safe in HTML text and inside the page's JavaScript strings
+        name = "".join(c for c in name if c.isalnum() and c.isascii() or c in " ().,-").strip()
+        MODEL = name or "Mac"
+    return MODEL
+
+
+def page():
+    return PAGE.replace("__MODEL__", model_name())
 
 
 class Portal(http.server.BaseHTTPRequestHandler):
@@ -192,7 +212,7 @@ class Portal(http.server.BaseHTTPRequestHandler):
             user = sh("defaults", "read", "/Library/Preferences/com.apple.loginwindow", "autoLoginUser").strip()
             return self.send(200, json.dumps({"mode": State.mode, "joining": State.joining, "result": State.result,
                                               "host": host, "user": user}), "application/json")
-        self.send(200, PAGE)
+        self.send(200, page())
 
     def do_POST(self):
         if urllib.parse.urlparse(self.path).path != "/api/join": return self.send(404, "")

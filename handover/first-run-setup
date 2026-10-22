@@ -24,6 +24,13 @@ ok()    { printf '%s✓ %s%s\n' "$grn" "$*" "$rst"; }
 warn()  { printf '%s! %s%s\n' "$yel" "$*" "$rst"; }
 err()   { printf '%s✗ %s%s\n' "$red" "$*" "$rst"; }
 run()   { if [ "$DRY_RUN" = 1 ]; then printf '%s[dry-run] %s%s\n' "$dim" "$*" "$rst"; else "$@"; fi; }
+model_name() {  # the Mac's model ("Mac mini", "Mac Studio", "MacBook Pro"), or "Mac"
+  local m="${MAS_MODEL_NAME:-}"
+  [ -n "$m" ] || m="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Model Name/{print $2; exit}')"
+  m="$(printf '%s' "$m" | tr -cd 'A-Za-z0-9 ().,-')"
+  printf '%s' "${m:-Mac}"
+}
+MODEL_NAME="$(model_name)"; MODEL_UC="$(printf '%s' "$MODEL_NAME" | tr '[:lower:]' '[:upper:]')"
 mark()  { touch "$STATE/done-$1"; }
 is_done() { [ -f "$STATE/done-$1" ]; }
 ask_yn() {  # ask_yn "question" default(y/n)
@@ -98,7 +105,7 @@ trap paused INT TERM HUP
 if [ "${1:-}" != "--redo" ]; then
   clear 2>/dev/null
   cat <<EOF
-${b}Welcome to your AI Mac mini.${rst}
+${b}Welcome to your AI $MODEL_NAME.${rst}
 
 This assistant takes about 5 minutes. It will:
   1. Set a new password (the one you were given is temporary)
@@ -317,7 +324,7 @@ fi
 rm -f "$STATE/pending" "$STATE/hostkey-warning" "$HOME/Desktop/Start Here.command"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"; MODEL="${MODEL:-qwen3.6:27b-mxfp8}"
 cat > "$HOME/WELCOME.txt" <<EOF
-YOUR AI MAC MINI · QUICK REFERENCE
+YOUR AI $MODEL_UC · QUICK REFERENCE
 
 Connect from anywhere (Tailscale must be running on your device):
   ssh $USER@$NAME
@@ -359,7 +366,7 @@ EOF
 
 head1 "All done"
 cat <<EOF
-${grn}${b}Your Mac mini is set up and belongs to you.${rst}
+${grn}${b}Your $MODEL_NAME is set up and belongs to you.${rst}
 Connect from anywhere with ${b}ssh $USER@$NAME${rst} (Tailscale on). This screen appears every time you log in:
 EOF
 if [ -x "$(dirname "$0")/ai-motd" ]; then "$(dirname "$0")/ai-motd"; fi

@@ -279,6 +279,20 @@ install_first_run() {  # copy the assistant from the repo into ~/.local/bin when
     die "Couldn't install $FRS. Nothing was changed."
   echo "Installed the first-run assistant as $FRS."
 }
+model_name() {  # the Mac's model ("Mac mini", "Mac Studio", "MacBook Pro"), or "Mac"
+  local m="${MAS_MODEL_NAME:-}"
+  [ -n "$m" ] || m="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Model Name/{print $2; exit}')"
+  m="$(printf '%s' "$m" | tr -cd 'A-Za-z0-9 ().,-')"
+  printf '%s' "${m:-Mac}"
+}
+power_button() {  # power_button <model>: where the power button is, for the card
+  case "$1" in
+    "Mac mini"*)   echo "press the power button (on the underside, near the back)." ;;
+    "Mac Studio"*) echo "press the power button (on the back)." ;;
+    MacBook*)      echo "press the power button (the top-right key, with Touch ID)." ;;
+    *)             echo "press its power button." ;;
+  esac
+}
 read_secret_file() {  # read_secret_file <var name of path>: print its contents and delete it
   local f="${!1:-}"; [ -n "$f" ] || return 0
   [ -r "$f" ] || { warn "$1 is set but $f can't be read."; return 1; }
@@ -422,7 +436,13 @@ EOF
 }
 
 build_card() {
-  local WIFI_NAME="" PLUGIN FALLBACK
+  local WIFI_NAME="" PLUGIN FALLBACK MODEL MODEL_UC STAYS
+  MODEL="$(model_name)"; MODEL_UC="$(printf '%s' "$MODEL" | tr '[:lower:]' '[:upper:]')"
+  case "$MODEL" in
+    MacBook*) STAYS="It stays on while it's plugged in." ;;
+    *)        STAYS="It stays on,
+and it restarts by itself after a power cut." ;;
+  esac
   # Name a network only if it is the new owner's (given and saved). Any other saved network is
   # the current owner's: its name doesn't belong on the card.
   if [ -n "$NEW_SSID" ] && { [ "$DRY_RUN" = 1 ] || wifi_saved "$NEW_SSID"; }; then WIFI_NAME="$NEW_SSID"; fi
@@ -446,7 +466,7 @@ build_card() {
       iPhone: Settings > Personal Hotspot > turn on Allow Others to
       Join, and keep the phone unlocked on that screen.
       (Android: untested. Turning on USB tethering may work.)
-      Plug the phone into the Mac mini and tap Trust if it asks.
+      Plug the phone into the $MODEL and tap Trust if it asks.
       After a minute, open this in the phone's browser:
           http://$HOST.local      (or http://172.20.10.2 on iPhone)
       Tap your Wi-Fi, enter its password, tap Join. When it says
@@ -465,15 +485,14 @@ build_card() {
   # (read -d '' rather than $(cat <<EOF): macOS's bash 3.2 mis-parses apostrophes in a heredoc inside $(...))
   IFS= read -r -d '' CARD <<EOF || true
 ==================================================================
-  YOUR AI MAC MINI · GETTING STARTED
+  YOUR AI $MODEL_UC · GETTING STARTED
 ==================================================================
-This Mac mini runs local AI models and Claude Code. It stays on,
-and it restarts by itself after a power cut.
+This $MODEL runs local AI models and Claude Code. $STAYS
 
 1. PLUG IT IN
 $PLUGIN
-   It should start by itself. If not, press the power button
-   (on the underside, near the back).
+   It should start by itself. If not,
+   $(power_button "$MODEL")
 $FALLBACK
 
 2. LOG IN ONCE (on the same home network as the Mac)

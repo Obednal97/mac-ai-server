@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Mac mini Wi-Fi setup</title>
+<title>__MODEL__ Wi-Fi setup</title>
 <style>
 :root {
   --page:#e8eaed; --surface:#fbfbfc; --tint:#eef3fa; --ink:#1c1f24; --muted:#565e69; --rule:#cfd4da;
@@ -146,13 +146,13 @@ input:read-only { color:var(--muted); }
       <circle class="led" cx="66" cy="11.3" r="1.5"/>
     </svg>
     <div>
-      <div class="host" id="host">Mac mini</div>
+      <div class="host" id="host">__MODEL__</div>
       <div class="state" id="state">Not on Wi-Fi yet</div>
     </div>
   </div>
 
-  <h1>Connect this Mac mini to your Wi-Fi</h1>
-  <p class="intro" id="intro1">The Mac mini has no Wi-Fi yet, so it is talking to your phone through the cable. Choose your Wi-Fi network below and type its password. You only do this once.</p>
+  <h1>Connect this __MODEL__ to your Wi-Fi</h1>
+  <p class="intro" id="intro1">The __MODEL__ has no Wi-Fi yet, so it is talking to your phone through the cable. Choose your Wi-Fi network below and type its password. You only do this once.</p>
   <p class="intro" id="intro2">Keep the cable plugged in until you see <strong>Connected</strong>.</p>
 
   <div class="listhead">
@@ -182,7 +182,7 @@ input:read-only { color:var(--muted); }
       <div id="jmsg" role="status" aria-live="polite" hidden></div>
       <div id="done" hidden>
         <p class="title" id="donetitle"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="var(--surface)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="donetext"></span></p>
-        <p id="donenote">The Mac mini will use this Wi-Fi from now on, even after a restart.</p>
+        <p id="donenote">The __MODEL__ will use this Wi-Fi from now on, even after a restart.</p>
         <ol>
           <li>Unplug the cable. You can turn off Personal Hotspot.</li>
           <li>Carry on with step 2 on your setup card.</li>
@@ -222,7 +222,7 @@ function header(state, text) {
 function setHost(h) {
   if (!h) return;
   S.host = h;
-  $("host").textContent = "Mac mini “" + h + "”";
+  $("host").textContent = "__MODEL__ “" + h + "”";
 }
 (function () {
   const h = location.hostname;
@@ -262,7 +262,7 @@ function emptyState() {
     html = '<span class="spin" aria-hidden="true"></span><div><strong>Looking for networks… <span class="tick">' +
       secs(S.scanStart) + ' s</span></strong>This can take up to 30 seconds.</div>';
   } else if (S.scanError && !(S.nets && S.nets.length)) {
-    html = "<div><strong>Can’t reach the Mac mini.</strong>Check that the cable is plugged in and Personal Hotspot is on, then tap Scan again.</div>";
+    html = "<div><strong>Can’t reach the __MODEL__.</strong>Check that the cable is plugged in and Personal Hotspot is on, then tap Scan again.</div>";
   } else if (S.nets && !S.nets.length && !S.scanning) {
     html = "<div><strong>No networks found.</strong>Check that your Wi-Fi router is switched on, then tap Scan again. If your network is hidden, type its name below.</div>";
   }
@@ -373,7 +373,7 @@ function setJoining(on, ssid) {
 function joiningText() {
   const t = secs(S.joinStart);
   if (S.misses >= 2) {
-    say("Waiting for the Mac mini to answer…", "", { busy: true, tick: t,
+    say("Waiting for the __MODEL__ to answer…", "", { busy: true, tick: t,
       sub: "If this goes on for more than a minute, check that the cable is still plugged in." });
   } else {
     say("Joining " + q(S.joinSsid) + "…", "", { busy: true, tick: t > 2 ? t : null,
@@ -385,10 +385,10 @@ function joiningText() {
 function friendly(err, ssid) {
   err = String(err || "");
   if (/wrong password/i.test(err)) return ["That password didn’t work.", "Check capital letters and try again. Tap Show to see what you typed."];
-  if (/in range/i.test(err)) return ["The Mac mini can’t find " + q(ssid) + " right now.", "Check the name and that the router is on and near the Mac, then try again."];
+  if (/in range/i.test(err)) return ["The __MODEL__ can’t find " + q(ssid) + " right now.", "Check the name and that the router is on and near the Mac, then try again."];
   if (/no address/i.test(err)) return ["The Mac joined " + q(ssid) + " but your router didn’t let it in.", "Try again in a minute. If it keeps happening, restart your router."];
-  if (/timed out/i.test(err)) return ["The Mac mini gave up waiting for " + q(ssid) + ".", "Check the password, move the Mac closer to the router if you can, and try again."];
-  if (/logged in/i.test(err)) return ["The Mac mini isn’t ready yet.", err.replace(/\.?$/, ".")];
+  if (/timed out/i.test(err)) return ["The __MODEL__ gave up waiting for " + q(ssid) + ".", "Check the password, move the Mac closer to the router if you can, and try again."];
+  if (/logged in/i.test(err)) return ["The __MODEL__ isn’t ready yet.", err.replace(/\.?$/, ".")];
   return ["Couldn’t join " + q(ssid) + ".", (err ? err.replace(/\.?$/, ". ") : "") + "Try again."];
 }
 
@@ -416,8 +416,8 @@ function showDone(ssid) {   // ssid null: the Mac reports it is online, without 
     $("panel").hidden = false;
   }
   $("join").hidden = true; $("jmsg").hidden = true;
-  $("donetext").textContent = ssid ? "Connected to " + q(ssid) : "The Mac mini is online";
-  $("donenote").textContent = ssid ? "The Mac mini will use this Wi-Fi from now on, even after a restart."
+  $("donetext").textContent = ssid ? "Connected to " + q(ssid) : "The __MODEL__ is online";
+  $("donenote").textContent = ssid ? "The __MODEL__ will use this Wi-Fi from now on, even after a restart."
                                    : "It is already connected, so there is nothing more to set up here.";
   if (S.host) {
     $("sshcmd").textContent = "ssh " + (S.user || "admin") + "@" + S.host + ".local";
@@ -426,7 +426,7 @@ function showDone(ssid) {   // ssid null: the Mac reports it is online, without 
   $("done").hidden = false;
   header("ok", ssid ? "On Wi-Fi: " + ssid : "Online");
   if (!ssid) {   // opened when there was nothing to do: the intro would contradict the page
-    $("intro1").textContent = "The Mac mini is already on a network, so there is nothing to set up here.";
+    $("intro1").textContent = "The __MODEL__ is already on a network, so there is nothing to set up here.";
     $("intro2").hidden = true;
     if (!rows().length) $("listtitle").parentNode.hidden = true;
   }
@@ -456,7 +456,7 @@ async function status() {
   }
   if (S.joining) {
     if (s.result) finish(s.result);
-    else { stopPolling(); setJoining(false); say("The Mac mini stopped before it finished.", "bad", { sub: "Tap Join to try again." }); }
+    else { stopPolling(); setJoining(false); say("The __MODEL__ stopped before it finished.", "bad", { sub: "Tap Join to try again." }); }
   }
 }
 
@@ -487,10 +487,10 @@ $("join").onsubmit = async e => {
     r = await fetch("/api/join", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ssid, password: S.chosen.open ? "" : pw }) });
   } catch (e) { r = null; }
-  if (!r) { setJoining(false); say("Can’t reach the Mac mini.", "bad", { sub: "Check that the cable is plugged in and Personal Hotspot is on, then tap Join again." }); return; }
+  if (!r) { setJoining(false); say("Can’t reach the __MODEL__.", "bad", { sub: "Check that the cable is plugged in and Personal Hotspot is on, then tap Join again." }); return; }
   if (!r.ok && r.status !== 409) {   // 409: a join is already running, so just follow it
     const j = await r.json().catch(() => ({}));
-    setJoining(false); say(j.error ? j.error.replace(/\.?$/, ".") : "The Mac mini didn’t accept that.", "bad", { sub: "Try again." });
+    setJoining(false); say(j.error ? j.error.replace(/\.?$/, ".") : "The __MODEL__ didn’t accept that.", "bad", { sub: "Try again." });
     return;
   }
   startPolling();

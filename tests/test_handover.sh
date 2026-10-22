@@ -252,6 +252,29 @@ out_has "Android: untested" "netsetup card says Android: untested"
 out_lacks "Android: turn" "card still claims Android tethering works"
 out_has '"MyWiFi" by itself' "dry-run card names the given SSID"
 
+# B: the card names the actual model, with its own power-button line
+fresh
+card_for() { MAS_MODEL_NAME="$1" FAKE_OUT_system_profiler="${2:-}" ph --phase1 --dry-run; }
+card_for "Mac Studio"
+out_has "YOUR AI MAC STUDIO" "Studio card title"
+out_has "This Mac Studio runs local AI models" "Studio card intro"
+out_has "(on the back)" "Studio power button"
+out_lacks "Mac mini" "Studio card never says Mac mini"
+card_for "MacBook Pro"
+out_has "YOUR AI MACBOOK PRO" "MacBook card title"
+out_has "Touch ID" "MacBook power button is the Touch ID key"
+out_lacks "Mac mini" "MacBook card never says Mac mini"
+out_lacks "underside" "MacBook card has no underside button"
+card_for "Mac mini"
+out_has "YOUR AI MAC MINI" "mini card title"
+out_has "on the underside, near the back" "mini power button"
+card_for "" ""
+out_has "YOUR AI MAC " "fallback title"
+out_lacks "Mac mini" "fallback never says Mac mini"
+out_lacks "underside" "fallback has a generic power button line"
+card_for "" "      Model Name: Mac Studio"
+out_has "YOUR AI MAC STUDIO" "model read from system_profiler"
+
 # ================================================================ first-run-setup
 # frs <stdin text>: run the assistant with only the password step left
 frs_state() {  # frs_state <extra state files...>
@@ -326,6 +349,18 @@ printf '%s' "$T1" > "$PW_STATE"
 printf '%b' "\n$T1\n$NEWPW\n$NEWPW\n" | FAKE_SUDO_V_RC=1 /bin/bash "$FRS" > "$OUT" 2>&1
 assert_eq "$(cat "$HOME/.first-run/temp-password" 2>/dev/null)" "$T1" "temporary password kept for the resume"
 assert_eq "$(stat -f %Lp "$HOME/.first-run/temp-password" 2>/dev/null)" 600 "saved temporary password mode 600"
+
+# B: first-run names the actual model
+fresh; frs_state done-password
+printf '%s' "$T1" > "$PW_STATE"
+printf '\n' | MAS_MODEL_NAME="MacBook Pro" /bin/bash "$FRS" > "$OUT" 2>&1
+out_has "Welcome to your AI MacBook Pro" "first-run welcome names the model"
+out_has "Your MacBook Pro is set up" "first-run finish names the model"
+assert_ok "WELCOME.txt names the model" grep -q "YOUR AI MACBOOK PRO" "$HOME/WELCOME.txt"
+out_lacks "Mac mini" "first-run never says Mac mini on a MacBook"
+fresh; frs_state done-password
+printf '\n' | MAS_MODEL_NAME="" /bin/bash "$FRS" > "$OUT" 2>&1
+out_has "Welcome to your AI Mac." "first-run fallback is Mac"
 
 # a stale lock from a cut-off session doesn't block
 fresh; frs_state; mkdir -p "$HOME/.first-run/lock"; echo 999999 > "$HOME/.first-run/lock/pid"

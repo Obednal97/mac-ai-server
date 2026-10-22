@@ -33,6 +33,7 @@ class Base(unittest.TestCase):
         S = netsetupd.State
         S.mode, S.networks, S.scanned_at, S.joining, S.result = "idle", [], 0, "", None
         S.result_at = S.idle_since = 0
+        netsetupd.MODEL = None
         self.patches = [
             mock.patch.object(netsetupd, "sh", fake_sh),
             mock.patch.object(netsetupd, "scanner", lambda *a, **k: None),
@@ -79,7 +80,34 @@ class MainLoop(Base):
         self.assertEqual(netsetupd.State.mode, "tether")
         status, body = self.get("/")
         self.assertEqual(status, 200)
-        self.assertEqual(body, netsetupd.PAGE)
+        self.assertEqual(body, netsetupd.page())
+
+
+class ModelName(Base):
+    """The page names the actual model (system_profiler's Model Name), or just "Mac"."""
+    def page_for(self, profiler_out):
+        out = {"system_profiler": profiler_out}
+        with mock.patch.object(netsetupd, "sh", lambda *c, **k: out.get(c[0], fake_sh(*c))):
+            netsetupd.MODEL = None
+            return netsetupd.page()
+
+    def test_mac_studio(self):
+        p = self.page_for("Hardware:\n\n    Hardware Overview:\n\n      Model Name: Mac Studio\n      Chip: Apple M5 Max\n")
+        self.assertIn("Connect this Mac Studio to your Wi-Fi", p)
+        self.assertNotIn("Mac mini", p)
+        self.assertNotIn("__MODEL__", p)
+
+    def test_macbook_pro(self):
+        self.assertIn("The MacBook Pro has no Wi-Fi yet", self.page_for("      Model Name: MacBook Pro\n"))
+
+    def test_fallback_is_mac(self):
+        p = self.page_for("")
+        self.assertIn("Connect this Mac to your Wi-Fi", p)
+        self.assertNotIn("Mac mini", p)
+
+    def test_name_is_sanitized(self):
+        p = self.page_for('      Model Name: Mac<script>"x"</script>\n')
+        self.assertNotIn("<script>\"x", p)
 
 
 class Joining(Base):
