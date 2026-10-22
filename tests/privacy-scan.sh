@@ -8,7 +8,8 @@
 #     per line, '#' comments allowed) is used when present and --generic is not
 #     given. It lives outside the repo and is never copied in.
 # Allowed on purpose (not matched by any pattern): 172.20.10.x, RFC 5737 ranges,
-# 192.168.2.1, and noreply addresses such as noreply@anthropic.com.
+# 192.168.2.1, noreply addresses such as noreply@anthropic.com, shell-variable users
+# ($VAR@host) and <user>@<host>.local SSH targets.
 GENERIC_ONLY=0
 if [ "${1:-}" = "--generic" ]; then GENERIC_ONLY=1; shift; fi
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -33,8 +34,13 @@ scan_stream() {
   cat > "$TMP/in"
   grep -nE "$TSIP" "$TMP/in" | report "$1" tailscale-ip
   grep -nE "$OTHER" "$TMP/in" | report "$1" token-or-link
-  # emails: keep only matches that are not noreply addresses
-  grep -noE "$EMAIL" "$TMP/in" | grep -viE '^[0-9]+:noreply@anthropic\.com$|@users\.noreply\.github\.com$' | report "$1" email
+  # emails: keep only matches that are not noreply addresses. Not emails, so removed first (lines
+  # keep their numbers): shell-variable users ($VAR@host, ${VAR}@host) and SSH targets on the
+  # local network (<user>@<host>.local).
+  sed -E -e 's/[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?@/ /g' \
+    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.]local([^A-Za-z0-9.-]|$)/ \2/g' \
+    "$TMP/in" > "$TMP/in.mail"
+  grep -noE "$EMAIL" "$TMP/in.mail" | grep -viE '^[0-9]+:noreply@anthropic\.com$|@users\.noreply\.github\.com$' | report "$1" email
   if [ -s "$TMP/bl" ]; then
     grep -niF -f "$TMP/bl" "$TMP/in" | report "$1" blocklist
   fi

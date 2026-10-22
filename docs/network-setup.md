@@ -79,7 +79,7 @@ ok network setup service is loaded and WifiScan has Location permission
 ## Other ways to get online
 
 - **Ethernet:** plug a cable from your router in. It always works.
-- **A Mac laptop and a USB-C or Thunderbolt cable:** connect the two Macs and `ssh -l admin ai-mini.local` over the cable. Then join Wi-Fi from the command line, or use Screen Sharing.
+- **A Mac laptop and a USB-C or Thunderbolt cable:** connect the two Macs and `ssh admin@ai-mini.local` over the cable. Then join Wi-Fi from the command line, or use Screen Sharing.
 - **A monitor and keyboard:** join Wi-Fi from the menu bar.
 
 There's **no Wi-Fi hotspot** fallback, where the Mac makes its own network for you to join. macOS 27 won't start Internet Sharing without a connection to share, so it can't work. See [decisions-and-gotchas.md](decisions-and-gotchas.md).

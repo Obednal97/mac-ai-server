@@ -46,7 +46,7 @@ If you want to report a problem, `mac-ai-server doctor --report` gives you the c
 | `doctor`: `fail GPU memory limit is ... MB, plan says ...` | Not applied yet (it's re-applied at startup) | Run the `sudo sysctl ...` command shown, or restart. |
 | `doctor`: `fail <tool> is missing — run: brew install <tool>` | A developer tool didn't install | Run the command shown, or `mac-ai-server install --only homebrew`. |
 | `doctor`: `fail Tailscale is not signed in` | Sign-in not finished, or the key expired | Run the command shown and open the link. Then disable key expiry ([remote-access.md](remote-access.md)). |
-| `ssh: Could not resolve hostname ai-mini.local` | A different network, or the name is different | Use the Tailscale name (`ssh -l admin ai-mini`), or the Mac's address from your router's device list. |
+| `ssh: Could not resolve hostname ai-mini.local` | A different network, or the name is different | Use the Tailscale name (`ssh admin@ai-mini`), or the Mac's address from your router's device list. |
 | SSH warns "REMOTE HOST IDENTIFICATION HAS CHANGED" | After a handover, the Mac has new keys | On your computer: `ssh-keygen -R ai-mini.local`, then connect again. |
 | The Mac didn't come back after a power cut | FileVault is on, or this is a laptop | Desktops: turn FileVault off ([guide.md](guide.md)). Laptops: see [macbooks.md](macbooks.md). After a clean shutdown, press the power button. |
 | A MacBook sleeps with the lid closed | Lid-closed sleep isn't fully controllable | Use an HDMI dummy plug, or leave the lid slightly open ([macbooks.md](macbooks.md)). |

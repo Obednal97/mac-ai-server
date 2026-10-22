@@ -218,7 +218,7 @@ Both `claude` and `claude-local` share projects, memory and history. In a projec
 
 **From your phone:** open the Claude app (or claude.ai/code in a browser) and start a Claude Code session on this Mac. More in [remote-access.md](remote-access.md).
 
-**From another computer:** `ssh -l admin ai-mini.local` on your home network, or `ssh -l admin ai-mini` with Tailscale. (`-l` is followed by your account name.) Use your own account and machine names. You'll see a welcome screen with the commands and the live status.
+**From another computer:** `ssh admin@ai-mini.local` on your home network, or `ssh admin@ai-mini` with Tailscale. Use your own account name (before the `@`) and machine name. You'll see a welcome screen with the commands and the live status.
 
 **The quick helper model.** Claude offers it at the end. You can also get it later with `mac-ai-server models add-fast`, then `chat <its name>` or `CLAUDE_LOCAL_MODEL=<its name> claude-local`.
 

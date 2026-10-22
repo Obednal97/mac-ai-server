@@ -55,11 +55,11 @@ Then install Tailscale on your phone or laptop ([tailscale.com/download](https:/
 From a Mac or Linux terminal, or Windows PowerShell:
 
 ```bash
-ssh -l admin ai-mini.local    # on the same home network
-ssh -l admin ai-mini          # from anywhere, with Tailscale on
+ssh admin@ai-mini.local    # on the same home network
+ssh admin@ai-mini          # from anywhere, with Tailscale on
 ```
 
-After `-l` comes your account name, then the machine name; use your own. (`ssh admin@ai-mini` is the same thing written another way.) The first time, answer `yes` to the fingerprint question. Then type the Mac's password.
+Your account name comes before the `@`, then the machine name; use your own. The first time, answer `yes` to the fingerprint question. Then type the Mac's password.
 
 You'll see the **welcome screen**:
 
