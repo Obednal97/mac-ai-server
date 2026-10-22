@@ -1,0 +1,102 @@
+{
+  "catalog": [
+    {"tag": "ornith-1.5:122b-nvfp4",   "size_gb": 73.4, "family": "ornith", "label": "Ornith 1.5 122B (opt-in upgrade: strongest, very new, untested here)"},
+    {"tag": "qwen3.6:35b-a3b-q8_0",    "size_gb": 38.7, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.6:35b-a3b-mxfp8",   "size_gb": 38,   "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 8-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.8:27b-mxfp8",       "size_gb": 31.7, "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
+    {"tag": "qwen3.6:27b-mxfp8",       "size_gb": 30.4, "family": "qwen3.6", "label": "Qwen 3.6 27B, 8-bit (previous generation, well tested)"},
+    {"tag": "qwen3.8:27b-q8_0",        "size_gb": 30,   "family": "qwen3.8", "label": "Qwen 3.8 27B, 8-bit (best accuracy for coding)"},
+    {"tag": "qwen3.6:35b-a3b-q4_K_M",  "size_gb": 23.9, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.6:35b-a3b-nvfp4",   "size_gb": 23.6, "family": "qwen3.6", "label": "Qwen 3.6 35B-A3B, 4-bit (very fast, thinks a lot)"},
+    {"tag": "qwen3.8:27b-nvfp4",       "size_gb": 18.2, "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
+    {"tag": "qwen3.8:27b-q4_K_M",      "size_gb": 17.7, "family": "qwen3.8", "label": "Qwen 3.8 27B, 4-bit (strong coding, slower)"},
+    {"tag": "gemma4:26b-nvfp4",        "size_gb": 16.1, "family": "gemma4", "label": "Gemma 4 26B, 4-bit (fast, good all-rounder)"},
+    {"tag": "qwen3.5:9b-mxfp8",        "size_gb": 11.2, "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
+    {"tag": "qwen3.5:9b-q8_0",         "size_gb": 10.4, "family": "qwen3.5", "label": "Qwen 3.5 9B, 8-bit (small and fast, simple edits)"},
+    {"tag": "bonsai-2:27b",            "size_gb": 8.3,  "family": "bonsai", "label": "Bonsai 2 27B (compact version of Qwen 3.8, new, lighter on memory)"},
+    {"tag": "qwen3.5:9b-nvfp4",        "size_gb": 7.2,  "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"},
+    {"tag": "qwen3.5:9b-q4_K_M",       "size_gb": 6.6,  "family": "qwen3.5", "label": "Qwen 3.5 9B, 4-bit (small and fast, simple edits)"}
+  ],
+  "tiers": {
+    "16": {
+      "primary": "bonsai-2:27b", "primary_gb": 8.3,
+      "fast": "qwen3.5:9b-nvfp4", "fast_gb": 7.2,
+      "context": 32768, "gpu_limit_mb": 12288,
+      "note": "Entry level. Good for questions, explanations and small edits at roughly 8 to 15 words per second; not for big autonomous refactors. Bonsai is a new, compact model and has had little testing. Keep other apps closed, because memory is tight.",
+      "by_chip_gen": {
+        "3": {"fast": "qwen3.5:9b-q4_K_M", "fast_gb": 6.6},
+        "4": {"fast": "qwen3.5:9b-q4_K_M", "fast_gb": 6.6}
+      }
+    },
+    "24": {
+      "primary": "bonsai-2:27b", "primary_gb": 8.3,
+      "fast": "qwen3.5:9b-mxfp8", "fast_gb": 11.2,
+      "context": 65536, "gpu_limit_mb": 18432,
+      "note": "A compromise tier. Handles everyday coding help and small multi-file changes, at roughly 8 to 18 words per second (faster on Pro chips). Bonsai is new and untested for long agent runs; if it struggles, switch to the 9B model, which is steadier but less capable.",
+      "by_chip_gen": {
+        "3": {"fast": "qwen3.5:9b-q8_0", "fast_gb": 10.4},
+        "4": {"fast": "qwen3.5:9b-q8_0", "fast_gb": 10.4}
+      }
+    },
+    "32": {
+      "primary": "qwen3.8:27b-nvfp4", "primary_gb": 18.2,
+      "fast": "gemma4:26b-nvfp4", "fast_gb": 16.1,
+      "context": 65536, "gpu_limit_mb": 24576,
+      "note": "First tier with a full-size 27B coding model. Good quality for real projects, but on a basic (non-Pro) chip expect only about 8 to 17 words per second. The fast model trades some accuracy for speed.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q4_K_M", "primary_gb": 17.7, "fast": "qwen3.5:9b-q8_0", "fast_gb": 10.4},
+        "4": {"primary": "qwen3.8:27b-q4_K_M", "primary_gb": 17.7, "fast": "qwen3.5:9b-q8_0", "fast_gb": 10.4}
+      }
+    },
+    "36": {
+      "primary": "qwen3.8:27b-nvfp4", "primary_gb": 18.2,
+      "fast": "qwen3.6:35b-a3b-nvfp4", "fast_gb": 23.6,
+      "context": 65536, "gpu_limit_mb": 28672,
+      "note": "Strong 27B coding model with room for long sessions. Roughly 10 to 17 words per second on Pro chips and up to about 60 on Max chips. The fast model is about 4 times quicker but uses a lot of thinking, so answers can take as long.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q4_K_M", "primary_gb": 17.7, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9},
+        "4": {"primary": "qwen3.8:27b-q4_K_M", "primary_gb": 17.7, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9}
+      }
+    },
+    "48": {
+      "primary": "qwen3.8:27b-mxfp8", "primary_gb": 31.7,
+      "fast": "qwen3.6:35b-a3b-nvfp4", "fast_gb": 23.6,
+      "context": 65536, "gpu_limit_mb": 40960,
+      "note": "The best accuracy per memory for coding agents. Roughly 10 to 40 words per second depending on the chip (about 22 on an M5 Pro). The fast model reaches about 86 on an M5 Pro. Qwen 3.8 is newer than the tested Qwen 3.6 and is being re-checked.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9},
+        "4": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q4_K_M", "fast_gb": 23.9}
+      }
+    },
+    "64": {
+      "primary": "qwen3.8:27b-mxfp8", "primary_gb": 31.7,
+      "fast": "qwen3.6:35b-a3b-mxfp8", "fast_gb": 38,
+      "context": 131072, "gpu_limit_mb": 57344,
+      "note": "Same top-accuracy 27B model as 48 GB, with room for very long sessions. Roughly 10 to 40 words per second depending on the chip. The fast model is 8-bit and much quicker, with some loss of depth.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7},
+        "4": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7}
+      }
+    },
+    "96": {
+      "primary": "qwen3.8:27b-mxfp8", "primary_gb": 31.7,
+      "fast": "qwen3.6:35b-a3b-mxfp8", "fast_gb": 38,
+      "context": 131072, "gpu_limit_mb": 88064,
+      "note": "Proven 27B model with lots of spare memory. Roughly 20 to 90 words per second depending on the chip (estimates, not measured). You can opt in to Ornith 1.5 122B, which scores higher but is brand new and untested here.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7},
+        "4": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7}
+      }
+    },
+    "128": {
+      "primary": "qwen3.8:27b-mxfp8", "primary_gb": 31.7,
+      "fast": "qwen3.6:35b-a3b-mxfp8", "fast_gb": 38,
+      "context": 131072, "gpu_limit_mb": 118784,
+      "note": "Proven 27B model with plenty of spare memory. Roughly 25 to 60 words per second depending on the chip (estimates, not measured). You can opt in to Ornith 1.5 122B, which scores higher but is brand new and untested here.",
+      "by_chip_gen": {
+        "3": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7},
+        "4": {"primary": "qwen3.8:27b-q8_0", "primary_gb": 30, "fast": "qwen3.6:35b-a3b-q8_0", "fast_gb": 38.7}
+      }
+    }
+  }
+}
