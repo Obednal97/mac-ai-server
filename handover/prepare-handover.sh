@@ -331,7 +331,15 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
     [ -n "$OLD" ] || die "Need the current password (HANDOVER_PASSWORD_FILE)."
     auth_ok "$OLD" || auth_die "Wrong password."
     setup_sudo "$OLD" || die "sudo failed."
-    seg() { LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' </dev/urandom | head -c 4; }
+    # Read a fixed amount of randomness: an endless `tr </dev/urandom | head` never ends
+    # where SIGPIPE is ignored (e.g. GitHub Actions runners), because tr ignores the closed pipe.
+    seg() {
+      local s=""
+      while [ "${#s}" -lt 4 ]; do
+        s="$s$(head -c 64 /dev/urandom | LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+      done
+      printf '%s' "${s:0:4}"
+    }
     TEMP="mini-$(seg)-$(seg)-$(seg)"
     # Save it before changing anything, so it can't get lost if this script is cut off
     mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR" && ( umask 077; printf '%s\n' "$TEMP" > "$TEMP_FILE" ) ||
