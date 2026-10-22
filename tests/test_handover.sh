@@ -15,7 +15,7 @@ FAKES="$TESTS_DIR/fakes"
 ME="$(id -un)"; export USER="$ME"
 W="$T_TMP/bin"; mkdir -p "$W"
 export PATH="$W:$PATH"
-export FAKES STDIN_LOG="$T_TMP/stdin.log" PW_STATE="$T_TMP/pw-state" NETS="$T_TMP/nets"
+export T_TMP FAKES STDIN_LOG="$T_TMP/stdin.log" PW_STATE="$T_TMP/pw-state" NETS="$T_TMP/nets"
 export TMPDIR="$T_TMP/tmp"; mkdir -p "$TMPDIR"
 export FAKE_OUT_scutil=ai-mini
 OUT="$T_TMP/out"
@@ -39,6 +39,8 @@ if [ $# -eq 1 ]; then
       passwd) if [ "${a[2]:-}" = "$cur" ]; then printf '%s' "${a[3]}" > "$PW_STATE"; cur="${a[3]}"; else fail=1; fi ;;
     esac
   done
+  # FAKE_DSCL_PARSE_ERR=1: stdin mode can't parse the line (not an auth failure)
+  [ -n "${FAKE_DSCL_PARSE_ERR:-}" ] && { echo "Invalid Command Syntax"; echo Goodbye; exit 0; }
   [ "$fail" = 0 ] || echo "DS Error: -14090 (eDSAuthFailed)"
   echo Goodbye; exit 0
 fi
@@ -82,6 +84,12 @@ cat > "$W/install" <<'EOF'
 echo "install $*" >> "$FAKE_LOG"
 a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$1"); shift ;; esac; done
 exec /usr/bin/install "${a[@]}"
+EOF
+# pmset: records the environment sudo'd commands see (no password may be in it)
+cat > "$W/pmset" <<'EOF'
+#!/bin/bash
+env > "$T_TMP/pmset.env"
+exec "$FAKES/pmset" "$@"
 EOF
 chmod +x "$W"/*
 
@@ -176,6 +184,19 @@ assert_eq "$rc1:$?" "0:0" "two phase 1 runs"
 assert_not_logged 'removepreferredwirelessnetwork'
 assert_eq "$(grep -c '^networksetup -addpreferredwirelessnetworkatindex en0 MyWiFi 0 OPEN' "$FAKE_LOG")" 1 "open network added once"
 
+# ---- askpass path (no password-free sudo): passwords never in the environment or argv
+fresh; rm -f "$T_TMP/pmset.env"
+FAKE_SUDO_NOPW=1 HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+assert_eq "$?" 0 "phase 1 via the askpass helper"
+assert_logged '^sudo -A -v'
+assert_ok "a sudo'd command ran" test -s "$T_TMP/pmset.env"
+assert_fails "no HANDOVER_SUDO_PW in children's env" grep -q '^HANDOVER_SUDO_PW=' "$T_TMP/pmset.env"
+assert_fails "old password not in children's env" grep -qF 'owner-pass-1' "$T_TMP/pmset.env"
+TEMPA="$(cat "$(STATE_DIR_T)/temp-password")"
+assert_fails "temporary password not in children's env" grep -qF "$TEMPA" "$T_TMP/pmset.env"
+assert_not_logged 'owner-pass-1'
+assert_ok "askpass dir removed at exit" sh -c '! ls -d "$1"/var/tmp/handover-ask.* >/dev/null 2>&1' _ "$MAS_SYSROOT"
+
 # ---- phase 1 refuses a wrong current password and changes nothing
 fresh
 HANDOVER_PASSWORD_FILE="$(pwfile owner wrong-pass)" ph --phase1
@@ -183,6 +204,21 @@ assert_fails "wrong password refused" test "$?" -eq 0
 assert_eq "$(cat "$PW_STATE")" "owner-pass-1" "password unchanged after refusal"
 assert_ok "no kcpassword after refusal" test ! -e "$MAS_SYSROOT/etc/kcpassword"
 assert_not_logged '^stdin:dscl passwd'
+# I4: a wrong password (often one typo from the real one) never goes on a command line
+assert_not_logged 'wrong-pass'
+assert_not_logged '^dscl .*-authonly'
+out_has "Wrong password" "wrong password message"
+
+# I4: stdin mode failing for a correct password: clear failure, no argv fallback, nothing changed
+fresh
+FAKE_DSCL_PARSE_ERR=1 HANDOVER_PASSWORD_FILE="$(pwfile owner owner-pass-1)" ph --phase1
+assert_fails "parse failure stops phase 1" test "$?" -eq 0
+assert_eq "$(cat "$PW_STATE")" "owner-pass-1" "password unchanged after a parse failure"
+assert_not_logged 'owner-pass-1'
+assert_not_logged '^dscl .*-(authonly|passwd)'
+out_has "couldn't check the password" "parse failure explains itself"
+out_lacks "owner-pass-1" "message doesn't echo the password"
+assert_fails "no argv password fallback left in the script" grep -nE 'dscl[^|]*-(authonly|passwd) "\$' "$PH"
 
 # ================================================================ card (dry run)
 # Fix 5: no new Wi-Fi given -> generic wording, never the builder's saved network name

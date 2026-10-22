@@ -168,16 +168,27 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 FRS_SRC="$(dirname "$SELF")/first-run-setup"; FRS="$HOME/.local/bin/first-run-setup"
 ASK=""; trap '[ -n "$ASK" ] && rm -rf "$ASK"' EXIT
 
-PW_ARGV=0   # 1 when dscl's stdin mode can't parse this password and the -authonly/-passwd args are needed
-auth_ok() {  # auth_ok <password>: check $USER's password without putting it on a command line
-  [ "$(printf 'authonly %s %s\n' "$(dq "$USER")" "$(dq "$1")" | dscl /Search 2>&1)" = Goodbye ] && return 0
-  dscl /Search -authonly "$USER" "$1" >/dev/null 2>&1 && { PW_ARGV=1; return 0; }
+# Passwords only ever go to dscl on its standard input, never on a command line (argv is visible
+# to every local process). There is no argv fallback: if dscl's stdin mode can't check a
+# password, the handover stops and says so.
+AUTH_WHY=""   # after a failed auth_ok: "wrong" (dscl rejected the password) or "dscl" (couldn't check)
+auth_ok() {  # auth_ok <password>: check $USER's password
+  local out
+  out="$(printf 'authonly %s %s\n' "$(dq "$USER")" "$(dq "$1")" | dscl /Search 2>&1)"
+  [ "$out" = Goodbye ] && return 0
+  case "$out" in *eDSAuth*) AUTH_WHY=wrong ;; *) AUTH_WHY=dscl ;; esac
   return 1
 }
-set_pw() {  # set_pw <old> <new>
-  if [ "$PW_ARGV" = 1 ]; then dscl . -passwd "/Users/$USER" "$1" "$2"
-  else [ "$(printf 'passwd %s %s %s\n' "$(dq "/Users/$USER")" "$(dq "$1")" "$(dq "$2")" | dscl . 2>&1)" = Goodbye ]; fi
+auth_die() {  # auth_die <message for a wrong password>: stop after a failed auth_ok, saying why
+  [ "$AUTH_WHY" = dscl ] && die "dscl couldn't check the password (it answered neither \"right\" nor \"wrong\").
+Passwords are never put on a command line, so the handover stops here. Nothing was changed.
+Check that the password file holds only the password (no extra lines), then run it again."
+  die "$1"
 }
+set_pw() {  # set_pw <old> <new>
+  [ "$(printf 'passwd %s %s %s\n' "$(dq "/Users/$USER")" "$(dq "$1")" "$(dq "$2")" | dscl . 2>&1)" = Goodbye ]
+}
+ask_pw() { ( umask 077; printf '%s' "$1" > "$ASK/pw" ); }   # ask_pw <password>: what the askpass helper hands sudo
 setup_sudo() {  # setup_sudo <password>: password-free sudo if available, else an askpass helper
   if command sudo -n true 2>/dev/null; then sudo() { command sudo -n "$@"; }; return 0; fi
   [ -n "${1:-}" ] || return 1
@@ -186,10 +197,13 @@ setup_sudo() {  # setup_sudo <password>: password-free sudo if available, else a
     while true; do command sudo -n true; sleep 50; kill -0 "$$" 2>/dev/null || exit; done 2>/dev/null &
     sudo() { command sudo "$@"; }; return 0
   fi
-  ASK="$(mktemp -d "$SYSROOT/var/tmp/handover-ask.XXXXXX")"
-  # shellcheck disable=SC2016  # the helper expands the variable itself, later
-  printf '#!/bin/sh\nprintf "%%s\\n" "$HANDOVER_SUDO_PW"\n' > "$ASK/askpass"; chmod 700 "$ASK/askpass"
-  export SUDO_ASKPASS="$ASK/askpass" HANDOVER_SUDO_PW="$1"
+  # The password goes into a 0600 file in a 0700 folder (deleted at exit), never into the
+  # environment, so the commands run under sudo can't read it from there.
+  ASK="$(mktemp -d "$SYSROOT/var/tmp/handover-ask.XXXXXX")" && chmod 700 "$ASK" || return 1
+  case "$ASK" in *"'"*) return 1 ;; esac
+  ask_pw "$1"
+  printf "#!/bin/sh\n/bin/cat '%s/pw'\nprintf '\\n'\n" "$ASK" > "$ASK/askpass"; chmod 700 "$ASK/askpass"
+  export SUDO_ASKPASS="$ASK/askpass"
   sudo() { command sudo -A "$@"; }
   command sudo -A -v 2>/dev/null
 }
@@ -235,14 +249,17 @@ phase1() {  # uses OLD, NEW_SSID, NEW_WIFI_PW; sets TEMP and CARD
 
   step "Temporary password"
   if [ "$DRY_RUN" = 1 ]; then
-    if [ -n "$OLD" ]; then auth_ok "$OLD" && echo "Current password: correct." || warn "Current password: WRONG (a real run would stop here)."
+    if [ -n "$OLD" ]; then
+      if auth_ok "$OLD"; then echo "Current password: correct."
+      elif [ "$AUTH_WHY" = dscl ]; then warn "dscl couldn't check the password through its standard input (a real run would stop here)."
+      else warn "Current password: WRONG (a real run would stop here)."; fi
     elif [ -n "$prev" ]; then echo "Phase 1 already ran; a real run keeps its temporary password."
     else warn "No current password given (a real run needs HANDOVER_PASSWORD_FILE)."; fi
     TEMP="mini-dryr-unxx-xxxx"
     echo "[dry-run] would set a random temporary password; the card below shows a fake one."
     write_autologin "$TEMP"
   elif [ -n "$prev" ] && [ "$FORCE" = 0 ]; then
-    auth_ok "$prev" || die "Phase 1 ran before, but its temporary password no longer works.
+    auth_ok "$prev" || auth_die "Phase 1 ran before, but its temporary password no longer works.
 Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current password> to set a new one."
     TEMP="$prev"; echo "Phase 1 already ran: keeping its temporary password."
     setup_sudo "$TEMP" || die "sudo failed."
@@ -250,7 +267,7 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
   else
     [ -z "$OLD" ] && [ -n "$prev" ] && auth_ok "$prev" && OLD="$prev"   # --force after an earlier run
     [ -n "$OLD" ] || die "Need the current password (HANDOVER_PASSWORD_FILE)."
-    auth_ok "$OLD" || die "Wrong password."
+    auth_ok "$OLD" || auth_die "Wrong password."
     setup_sudo "$OLD" || die "sudo failed."
     seg() { LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' </dev/urandom | head -c 4; }
     TEMP="mini-$(seg)-$(seg)-$(seg)"
@@ -262,7 +279,7 @@ Run it again with --force and HANDOVER_PASSWORD_FILE=<file with the current pass
       die "Password change failed. The password was not changed."
     fi
     changed=1
-    [ -n "$ASK" ] && export HANDOVER_SUDO_PW="$TEMP"
+    [ -n "$ASK" ] && ask_pw "$TEMP"
     trap 'printf "\n%sStopped early. The password for %s is: %s%s\n" "$yel" "$USER" "$TEMP" "$rst"' INT TERM
     # Auto-login right away: a reboot from here on logs in with the new password, so the GUI
     # session (and the Claude Code session in it) comes back even if this script is cut off.
@@ -453,7 +470,8 @@ phase2() {  # phase2 <delay seconds>
     command sudo -n true 2>/dev/null || die "The dry run needs password-free sudo to start its test daemon."
     sudo() { command sudo -n "$@"; }
   else
-    [ -n "$prev" ] && auth_ok "$prev" || die "Run phase 1 first (its temporary password must be the current password)."
+    [ -n "$prev" ] || die "Run phase 1 first (its temporary password must be the current password)."
+    auth_ok "$prev" || auth_die "Run phase 1 first (its temporary password must be the current password)."
     [ -f ~/.first-run/pending ] || die "The first-run assistant isn't armed. Run phase 1 again."
     [ -x "$FRS" ] || die "Missing $FRS. Run phase 1 again."
     command sudo -n launchctl print "system/$LABEL" >/dev/null 2>&1 && { echo "Phase 2 is already running (see $LOG)."; return 0; }

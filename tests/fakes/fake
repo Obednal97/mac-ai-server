@@ -6,7 +6,8 @@ if [ "$name" = sudo ]; then
   while [ $# -gt 0 ]; do
     case "$1" in
       -v) exit "${FAKE_SUDO_V_RC:-0}" ;;
-      -n|-A|-S|-k) shift ;;
+      -n) [ -n "${FAKE_SUDO_NOPW:-}" ] && exit 1; shift ;;   # FAKE_SUDO_NOPW=1: no password-free sudo
+      -A|-S|-k) shift ;;
       -u) shift 2 ;;
       --) shift; break ;;
       -*) shift ;;
