@@ -2,6 +2,11 @@
 # Homebrew and the command-line tools the kit needs. Everything after this module relies on it.
 # Tests: MAS_BREW_BIN (brew binary), MAS_BREW_PREFIX (prefix put on PATH).
 
+_MAS_SERVER_TOOLS="tmux mosh htop"
+_MAS_DEV_TOOLS_DEFAULT="node pnpm uv git gh jq ripgrep"
+# Developer tools are user-editable (MAS_DEV_TOOLS); an empty value means none.
+_mas_dev_tools() { printf '%s' "${MAS_DEV_TOOLS-$_MAS_DEV_TOOLS_DEFAULT}"; }
+
 _mas_brew_bin() { printf '%s' "${MAS_BREW_BIN:-/opt/homebrew/bin/brew}"; }
 
 mod_applies() { true; }
@@ -28,23 +33,33 @@ mod_run() {
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
   mkdir -p "$HOME/.local/bin"
   PATH="$HOME/.local/bin:$PATH"; export PATH
-  brew install tmux mosh git uv htop
+  local listed t want=""
+  listed="$(brew list --formula 2>/dev/null)"
+  # shellcheck disable=SC2086  # the lists are space-separated words
+  for t in $_MAS_SERVER_TOOLS $(_mas_dev_tools); do
+    printf '%s\n' "$listed" | grep -Fxq -- "$t" || want="$want $t"
+  done
+  # shellcheck disable=SC2086
+  [ -z "$want" ] || brew install $want
 }
 
 mod_check() {
-  local bin t missing=""
+  local bin t listed missing="" all
   bin="$(_mas_brew_bin)"
   if [ ! -x "$bin" ]; then
     echo "fail Homebrew is not installed — run: mac-ai-server install --only homebrew"
     return 1
   fi
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$PATH"
-  for t in tmux mosh git uv htop; do
-    command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+  listed="$("$bin" list --formula 2>/dev/null)"
+  all="$_MAS_SERVER_TOOLS $(_mas_dev_tools)"
+  # shellcheck disable=SC2086
+  for t in $all; do
+    if printf '%s\n' "$listed" | grep -Fxq -- "$t"; then
+      echo "ok $t is installed"
+    else
+      echo "fail $t is missing — run: brew install $t"; missing="$missing $t"
+    fi
   done
-  if [ -n "$missing" ]; then
-    echo "fail Missing tools:$missing — run: brew install$missing"
-    return 1
-  fi
-  echo "ok Homebrew and tools (tmux, mosh, git, uv, htop) are installed"
+  [ -z "$missing" ]
 }

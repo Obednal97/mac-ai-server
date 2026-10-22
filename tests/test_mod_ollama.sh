@@ -24,7 +24,6 @@ DFROW() { printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x
 # --- homebrew
 runfn "$BREW" mod_run
 assert_eq "$?" 0 "homebrew run ok"
-assert_logged '^brew install tmux mosh git uv htop'
 assert_not_logged 'curl'
 assert_not_logged 'mlx'
 assert_ok "zprofile has shellenv" grep -q 'brew shellenv' "$HOME/.zprofile"
@@ -36,8 +35,7 @@ assert_eq "$(grep -c '.local/bin' "$HOME/.zshrc")" 1 "PATH line added once"
 runfn "$BREW" mod_run MAS_BREW_BIN="$T_TMP/nobrew" FAKE_OUT_curl="echo installer"
 assert_logged '^curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh'
 STUBS="$T_TMP/pfx/bin"; mkdir -p "$STUBS"
-for t in tmux mosh git uv htop; do printf '#!/bin/sh\n' > "$STUBS/$t"; chmod +x "$STUBS/$t"; done
-runfn "$BREW" mod_check MAS_BREW_PREFIX="$T_TMP/pfx"; assert_eq "$?" 0 "homebrew check ok"
+runfn "$BREW" mod_check MAS_BREW_PREFIX="$T_TMP/pfx" MAS_DEV_TOOLS="git uv" FAKE_OUT_brew=$'tmux\nmosh\nhtop\ngit\nuv'; assert_eq "$?" 0 "homebrew check ok"
 runfn "$BREW" mod_check MAS_BREW_BIN="$T_TMP/nobrew"; assert_eq "$?" 1 "homebrew check fails when missing"
 assert_ok "check names fix" has "fail .* — "
 

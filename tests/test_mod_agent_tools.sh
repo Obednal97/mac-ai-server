@@ -29,7 +29,7 @@ runfn mod_applies MAS_AGENT_TOOLS=no; assert_eq "$?" 1 "MAS_AGENT_TOOLS=no skips
 # --- defaults: everything registered
 runfn mod_run
 assert_eq "$?" 0 "run ok"
-assert_logged '^brew install node uv'
+assert_logged '^brew install node uv$'
 assert_logged '^npx -y playwright install chromium'
 assert_logged "^claude mcp add --scope user playwright $SP -- $PFX/bin/npx -y @playwright/mcp@latest .*--headless"
 assert_logged '^claude mcp add --scope user playwright .*--isolated'
