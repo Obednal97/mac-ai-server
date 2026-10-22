@@ -1,6 +1,6 @@
 #!/bin/bash
 # Power: never sleep (desktop), restart after power loss, auto-login, laptop modes.
-# Env: MAS_MODE, MAS_SUDO, MAS_PASSWORD_FILE. MAS_SYSROOT prefixes /etc (tests only).
+# Env: MAS_MODE, MAS_SUDO, MAS_PASSWORD_FILE, SUDO_ASKPASS. MAS_SYSROOT prefixes /etc (tests only).
 # Modes: desktop; laptop-daily (research report Mode A); laptop-server (Mode B, ruling R10).
 
 _mas_pw_user() { printf '%s' "${MAS_USER:-$(id -un)}"; }
@@ -13,8 +13,8 @@ _mas_pw_get() {
   local pw=""
   if [ -r "${MAS_PASSWORD_FILE:-}" ]; then
     pw="$(cat "$MAS_PASSWORD_FILE")"
-  elif [ -n "${MAS_SUDO_PW:-}" ]; then
-    pw="$MAS_SUDO_PW"
+  elif [ "${MAS_SUDO:-terminal}" = askpass ] && [ -x "${SUDO_ASKPASS:-}" ]; then
+    pw="$("$SUDO_ASKPASS")"
   elif [ -z "${MAS_NO_TTY:-}" ] && { : </dev/tty; } 2>/dev/null; then
     printf "Login password for '%s' (to set up auto-login): " "$(_mas_pw_user)" >/dev/tty
     IFS= read -r -s pw </dev/tty

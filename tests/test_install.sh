@@ -132,6 +132,8 @@ helper="$(cat "$FIX_OUT.helper")"
 assert_ok "module saw the helper" test -n "$helper"
 assert_fails "helper removed" test -e "$helper"
 assert_not_logged 'p@ss'
+assert_fails "password not in a module's environment" grep -qF 'p@ss' "$FIX_OUT.env"
+assert_fails "no MAS_SUDO_PW in a module's environment" grep -q '^MAS_SUDO_PW=' "$FIX_OUT.env"
 kapid="$(cat "$FIX_OUT.kapid")"
 assert_ok "module saw keepalive pid" test -n "$kapid"
 assert_fails "keepalive killed" alive "$kapid"

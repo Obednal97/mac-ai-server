@@ -23,33 +23,35 @@ mas_free_gb() {
 MAS_ASKPASS_DIR=""
 MAS_ASKPASS_PWFILE=""
 
-# mas_sudo_init: Terminal mode caches sudo with `sudo -v`. Askpass mode reads the
-# password from $MAS_PASSWORD_FILE and hands it to sudo through a 0700 helper that
-# prints an environment variable, so the password is never in argv.
+# mas_sudo_init: Terminal mode caches sudo with `sudo -v`. Askpass mode copies the password from
+# $MAS_PASSWORD_FILE into a 0600 file inside a 0700 temp dir and hands it to sudo through a helper
+# that cats that file. The password is never in argv or in any environment variable, so the
+# third-party tools the install runs (brew, npx, uvx, curl | bash) can't read it from the env.
 mas_sudo_init() {
   if [ "${MAS_SUDO:-terminal}" = askpass ]; then
     [ -r "${MAS_PASSWORD_FILE:-}" ] || mas_die "MAS_SUDO=askpass needs a readable MAS_PASSWORD_FILE."
     MAS_ASKPASS_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/mas-ask.XXXXXX")" || mas_die "Can't create askpass dir."
     chmod 700 "$MAS_ASKPASS_DIR"
-    # shellcheck disable=SC2016  # the helper must expand the variable itself, later
-    printf '#!/bin/sh\nprintf "%%s\\n" "$MAS_SUDO_PW"\n' > "$MAS_ASKPASS_DIR/askpass"
-    chmod 700 "$MAS_ASKPASS_DIR/askpass"
+    case "$MAS_ASKPASS_DIR" in *"'"*) mas_die "Unusable temp dir for the askpass helper: $MAS_ASKPASS_DIR" ;; esac
     MAS_ASKPASS_PWFILE="$MAS_PASSWORD_FILE"
-    MAS_SUDO_PW="$(cat "$MAS_PASSWORD_FILE")"
-    export SUDO_ASKPASS="$MAS_ASKPASS_DIR/askpass" MAS_SUDO_PW
+    ( umask 077; cat "$MAS_PASSWORD_FILE" > "$MAS_ASKPASS_DIR/pw" ) || mas_die "Can't copy the password file."
+    chmod 600 "$MAS_ASKPASS_DIR/pw"
+    printf "#!/bin/sh\n/bin/cat '%s/pw'\nprintf '\\n'\n" "$MAS_ASKPASS_DIR" > "$MAS_ASKPASS_DIR/askpass"
+    chmod 700 "$MAS_ASKPASS_DIR/askpass"
+    export SUDO_ASKPASS="$MAS_ASKPASS_DIR/askpass"
     sudo -A -v 2>/dev/null || mas_die "sudo rejected the password."
   else
     sudo -v || mas_die "sudo needs the admin password."
   fi
 }
 
-# mas_sudo_cleanup: remove the helper and the password file.
+# mas_sudo_cleanup: remove the helper dir (with its password copy) and the password file.
 mas_sudo_cleanup() {
   [ -n "$MAS_ASKPASS_DIR" ] && rm -rf "$MAS_ASKPASS_DIR"
   MAS_ASKPASS_DIR=""
   [ -n "$MAS_ASKPASS_PWFILE" ] && rm -f "$MAS_ASKPASS_PWFILE"
   MAS_ASKPASS_PWFILE=""
-  unset SUDO_ASKPASS MAS_SUDO_PW
+  unset SUDO_ASKPASS
   return 0
 }
 

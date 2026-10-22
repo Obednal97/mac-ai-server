@@ -43,6 +43,14 @@ assert_not_logged 'pmset -g cap.*powermode'
 assert_not_logged 'powermode 2'
 assert_not_logged 'disablesleep'
 
+# askpass mode after the password file is gone: the password comes from the askpass helper
+rm -f "$MAS_SYSROOT/etc/kcpassword"
+mkdir -p "$T_TMP/ask"; printf 'helperpw' > "$T_TMP/ask/pw"
+printf "#!/bin/sh\n/bin/cat '%s'\n" "$T_TMP/ask/pw" > "$T_TMP/ask/askpass"; chmod 700 "$T_TMP/ask/askpass"
+runfn mod_run MAS_MODE=desktop MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/gone" SUDO_ASKPASS="$T_TMP/ask/askpass"
+assert_ok "kcpassword written from the askpass helper" test -s "$MAS_SYSROOT/etc/kcpassword"
+assert_not_logged 'helperpw'
+
 # high power mode only when pmset -g cap lists it
 FAKE_OUT_pmset="Capabilities for AC Power: sleep highpowermode" runfn mod_run MAS_MODE=desktop MAS_SUDO=askpass MAS_PASSWORD_FILE="$T_TMP/pw"
 assert_logged '^pmset -a powermode 2'

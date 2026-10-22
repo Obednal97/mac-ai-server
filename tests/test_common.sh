@@ -28,9 +28,17 @@ assert_eq "$("$SUDO_ASKPASS")" "$pw" "askpass prints password exactly"
 assert_eq "$(stat -f %Lp "$SUDO_ASKPASS")" "700" "helper is 0700"
 assert_fails "password written into helper" grep -q 'p@ss' "$SUDO_ASKPASS"
 assert_ok "password file kept until cleanup" test -f "$T_TMP/pw"
+assert_eq "${MAS_SUDO_PW+set}" "" "no MAS_SUDO_PW variable"
+assert_fails "password not in any child's environment" sh -c 'env | grep -qF "p@ss"'
+askdir="$(dirname "$SUDO_ASKPASS")"
+assert_eq "$(stat -f %Lp "$askdir")" 700 "askpass dir is 0700"
+pwcopy="$(find "$askdir" -type f ! -name askpass)"
+assert_ok "password copy inside the askpass dir" test -f "$pwcopy"
+assert_eq "$(stat -f %Lp "$pwcopy" 2>/dev/null)" 600 "password copy is 0600"
 helper="$SUDO_ASKPASS"
 mas_sudo_cleanup
 assert_fails "helper removed" test -e "$helper"
+assert_fails "askpass dir removed" test -e "$askdir"
 assert_fails "password file removed" test -e "$T_TMP/pw"
 
 # terminal mode runs sudo -v
