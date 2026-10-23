@@ -159,7 +159,9 @@ mod_check() {
     echo "fail Screen Sharing is off — turn it on at the Mac: System Settings > General > Sharing > Screen Sharing (or run: sudo launchctl enable system/com.apple.screensharing)"; rc=1
   elif ! _mas_ra_ss_allowed "$ssu"; then
     echo "fail Screen Sharing is on but $ssu isn't allowed to connect — run: sudo dseditgroup -o edit -a $ssu -t user $(_mas_ra_ss_group)"; rc=1
-  else echo "ok Screen Sharing is on and $ssu may connect"; fi
+  # Switched on from the command line, it can still refuse everyone ("not permitted": macOS 27 never
+  # gave it the screen and input permissions). That only shows after a login, so it isn't claimed ok.
+  else echo "info Screen Sharing is on and $ssu is allowed in — whether macOS accepts connections can't be checked automatically (if it says \"not permitted\", switch it off and on at the Mac: System Settings > General > Sharing > Screen Sharing)"; fi
   if "$fw" --getglobalstate 2>/dev/null | grep -qi "enabled"; then echo "ok firewall is on"
   else echo "fail firewall is off — run: sudo $fw --setglobalstate on"; rc=1; fi
   return "$rc"

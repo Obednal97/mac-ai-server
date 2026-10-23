@@ -116,5 +116,6 @@ On other devices, use any VNC app.
 The installer starts Screen Sharing and lets your account connect, but **on macOS 12.1 and later no command can fully switch it on**. A service started from the command line accepts the login and then refuses with "Screen Sharing is not permitted on …". Only the System Settings switch (or an MDM server's "Enable Remote Desktop" command) gives it permission to see the screen and control the mouse and keyboard, and those permissions live in a database that System Integrity Protection guards even from administrators. So:
 - **While you still have a screen and keyboard at setup,** switch Screen Sharing on in System Settings > General > Sharing. It then keeps working headless, after restarts too.
 - **Already headless?** You need a screen and keyboard (or a device that acts as a USB keyboard and mouse) for one minute to switch it off and on there.
+- **`doctor` can't tell the two apart,** because the refusal only comes after a login. Once Screen Sharing is on and you're allowed in, it shows an `info` line, not `ok`.
 
 Screen Sharing is how you click the macOS prompts on a Mac with no monitor, such as the Location "Allow" box.
