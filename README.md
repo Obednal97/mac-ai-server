@@ -21,6 +21,7 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
   - A Mac mini or Mac Studio never sleeps, restarts by itself after a power cut and logs itself back in. (MacBooks work differently; see [docs/macbooks.md](docs/macbooks.md).)
   - Every Mac installs security updates automatically.
 - **Agent tools.** Web search, a web page reader and a hidden browser work even with the local model, plus three helpful Claude Code plugins.
+- **Several sessions at once.** `cs` opens [Claude Squad](https://github.com/smtg-ai/claude-squad): parallel Claude Code sessions, each on its own git worktree, that keep running and show up in the same list from any device you SSH in from.
 - **Status line.** An optional bar at the bottom of Claude Code showing cost, context, git and account, from [claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit).
 - **Room for more people** (optional). Friends, family or a team can have their own accounts, with their own files and Claude login, while sharing the models, plugins and skills. Each new person gets an info pack to connect from anywhere, through Tailscale sharing (their own account, never yours) or WireGuard (no account at all). See [docs/multi-user.md](docs/multi-user.md).
 - **Phone Wi-Fi setup.** Moved the Mac somewhere new, with no screen? Plug in your phone and pick the Wi-Fi from a web page.

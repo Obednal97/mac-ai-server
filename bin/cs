@@ -1,0 +1,34 @@
+#!/bin/bash
+# cs: Claude Squad (github.com/smtg-ai/claude-squad) with Claude Code as the agent, permission
+# prompts off. Several Claude Code sessions side by side, each on its own git worktree (a separate
+# copy of the project on its own branch) and in its own tmux session, so they keep running after
+# you disconnect and the same list shows up from any device you SSH in from.
+#   cs                 open the list (n new session, ↵ open it, Ctrl-q back to the list, q quit)
+#   cs -p '<program>'  run something else in new sessions (any claude-squad option works)
+# Claude Squad only starts inside a git repository: elsewhere, cs offers the ones in ~/projects.
+PATH="$PATH:/opt/homebrew/bin:$HOME/.local/bin"; export PATH   # appended, so your own tools win
+command -v claude-squad >/dev/null 2>&1 || { echo "Claude Squad isn't installed. Run: mac-ai-server install --only squad"; exit 1; }
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  repos=()
+  while IFS= read -r g; do repos+=("$(dirname "$g")"); done \
+    < <(find "$HOME/projects" -maxdepth 3 -name .git -prune 2>/dev/null | sort)
+  if [ "${#repos[@]}" -eq 0 ]; then
+    echo "Claude Squad works inside a git project, and there's none in ~/projects yet."
+    echo "Clone one (cd ~/projects && git clone <url>) or start one (mkdir ~/projects/name && cd ~/projects/name && git init), then run cs there."
+    exit 1
+  fi
+  echo "Claude Squad works inside a git project. New sessions start from the one you pick;"
+  echo "the list shows your sessions from every project."
+  for i in "${!repos[@]}"; do printf '  %d. %s\n' "$((i + 1))" "${repos[$i]#"$HOME/projects/"}"; done
+  read -r -p "Project number (Enter for 1): " n || exit 1
+  n="${n:-1}"
+  case "$n" in ''|*[!0-9]*) echo "No project chosen."; exit 1 ;; esac
+  [ "$n" -ge 1 ] && [ "$n" -le "${#repos[@]}" ] || { echo "No project $n."; exit 1; }
+  cd "${repos[$((n - 1))]}" || exit 1
+fi
+
+for a in "$@"; do
+  case "$a" in -p|--program|--program=*) exec claude-squad "$@" ;; esac
+done
+exec claude-squad -p "claude --dangerously-skip-permissions" "$@"

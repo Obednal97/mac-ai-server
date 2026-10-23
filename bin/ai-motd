@@ -10,13 +10,18 @@ UP="$(uptime | sed -E 's/.*up +//; s/, +[0-9]+ users?.*//; s/,$//')"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"
 LOADED="$(ollama ps 2>/dev/null | awk 'NR>1{print $1}' | paste -sd, -)"
 
+SQUAD=""
+command -v claude-squad >/dev/null 2>&1 && [ -x "$HOME/.local/bin/cs" ] &&
+  SQUAD="  ${c}cs${r}              several Claude Code sessions side by side ${d}(Claude Squad; same list from any device)${r}
+"
+
 printf '\n  %s%s%s  %s·  up %s  ·  %s free%s\n' "$b" "$NAME" "$r" "$d" "$UP" "$FREE" "${TS:+  ·  tailscale $TS}$r"
 cat <<EOF
 
   ${c}claude${r}          Claude Code with Anthropic's models ${d}(best quality)${r}
   ${c}claude-local${r}    Claude Code on this Mac's model ${d}(private, offline, slower)${r}
   ${c}chat${r}            quick chat with the local model
-  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update · models · help
+${SQUAD}  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update · models · help
 
   ${d}Both claude commands share projects, memory and history.${r}
   ${d}Switch any time: run either one with${r} --continue ${d}in a project folder.${r}
