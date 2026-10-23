@@ -187,3 +187,8 @@ Each entry says what we found and what we decided.
   - It re-locks the keychain with the temporary password, so Claude Code keeps its login across a reboot before phase 2.
   - The first-run assistant re-syncs both when the new owner picks a password, including when it resumes after an interruption.
   - Passwords go to `dscl` and `security` on standard input, never on a command line.
+- **Found (later):** re-syncing the keychain from the SSH session isn't enough for sessions that already had it open. The desktop session, and the tmux session started from it, keep the old password's key: every keychain call there fails with "passphrase not correct" (-25293), even `show-keychain-info`, and a plain `unlock-keychain` with the new password fails too. So `claude` in tmux couldn't save or read its login, and Remote Control stopped.
+- **Decision:**
+  - `ai-keychain-unlock` also unlocks the tmux server's session, running `security -i` inside it through `tmux run-shell`. The password goes through a private named pipe, never a command line or a file.
+  - It sends `lock-keychain` before `unlock-keychain`, which clears the stale key.
+  - The first-run assistant runs it with the new password straight after the re-sync, and every SSH login checks again. `doctor` reports a locked tmux session.

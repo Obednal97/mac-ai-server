@@ -213,6 +213,12 @@ mod_check() {
     echo "fail the login keychain is locked in this session, so logins kept in it (Claude Code, gh) can't be read — run: mac-ai-server unlock"
     return 1
   fi
+  # The tmux session (Claude Code, Remote Control) has its own keychain state; checked from outside it
+  if [ -z "${TMUX:-}" ] && [ -f "$HOME/Library/Keychains/login.keychain-db" ] && tmux has-session 2>/dev/null \
+     && ! tmux run-shell "security show-keychain-info \"\$HOME/Library/Keychains/login.keychain-db\" >/dev/null 2>&1" >/dev/null 2>&1; then
+    echo "fail the login keychain is locked in the background tmux session, so Claude Code and Remote Control there aren't logged in — run: mac-ai-server unlock"
+    return 1
+  fi
   if ! _mas_cl_logged_in; then
     echo "fail Claude Code isn't logged in — run: tmux new -As main, then claude"
     return 1

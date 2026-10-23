@@ -256,6 +256,17 @@ runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$?" 0 "setup-token counts as logged in"
 rm -f "$HOME/.mac-ai-server/claude-token"; echo '{}' > "$HOME/.claude/.credentials.json"
 
+# the background tmux session's keychain is locked (checked through tmux run-shell, outside tmux only)
+mkdir -p "$HOME/Library/Keychains"; touch "$HOME/Library/Keychains/login.keychain-db"
+TL="$T_TMP/tmux-locked"; mkdir -p "$TL"
+printf '#!/bin/sh\ncase "$1" in has-session) exit 0 ;; run-shell) exit 1 ;; esac\n' > "$TL/tmux"; chmod +x "$TL/tmux"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 "PATH=$TL:$SAFE_PATH"
+assert_eq "$?" 1 "locked tmux keychain fails the check"
+assert_ok "names the tmux session and the fix" has "locked in the background tmux session.*mac-ai-server unlock"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 "PATH=$TL:$SAFE_PATH" TMUX=x
+assert_eq "$?" 0 "not probed from inside tmux"
+rm -rf "$HOME/Library/Keychains"
+
 rm -f "$BIN/claude"
 runfn mod_check "${PLAN[@]}"
 assert_eq "$?" 1 "check fails without claude"
