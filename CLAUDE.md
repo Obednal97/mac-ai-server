@@ -228,6 +228,12 @@ Explain the risk plainly:
 
 Save `MAS_AGENT_MODE=no` (or `yes` only if they clearly want it).
 
+Then one related question, about `cs` (Claude Squad, several Claude Code sessions side by side):
+
+> "Should the sessions you start in `cs` skip permission prompts too? Then each one works through its task without stopping to ask, which suits sessions you leave running. The same risk applies as above. I recommend leaving it off."
+
+Save `MAS_SQUAD_SKIP_PERMISSIONS=no` (or `yes` if they want it). Either way, `cs` offers both `claude` and `claude-local`; off makes both ask before they act. With agent mode on, `claude` skips the prompts anyway (agent mode sets that for every session).
+
 To turn it off later: set `MAS_AGENT_MODE=no` in `config.env` and run `mac-ai-server install --only agent-mode` (admin password). `doctor` reports `ok agent mode is off`, or a `fail` line while it's still on.
 
 ### 4i. Handover support (default: no)

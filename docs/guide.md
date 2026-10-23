@@ -255,6 +255,7 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_SEARXNG_URL` | empty | Your SearXNG address, when `MAS_SEARCH=searxng`. |
 | `MAS_STATUSLINE` | `yes` | Install the Claude Code status line. |
 | `MAS_SQUAD` | `yes` | Install Claude Squad and the `cs` command. |
+| `MAS_SQUAD_SKIP_PERMISSIONS` | `no` | `yes`: sessions started in `cs` (`claude` and `claude-local`) skip permission prompts. |
 | `MAS_DEV_TOOLS` | `"node pnpm uv git gh jq ripgrep"` | Homebrew developer tools. Empty means none. |
 | `MAS_AGENT_MODE` | `no` | Passwordless admin plus no permission prompts. |
 | `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `main`. |

@@ -1,9 +1,11 @@
 #!/bin/bash
-# cs: Claude Squad (github.com/smtg-ai/claude-squad) with Claude Code as the agent, permission
-# prompts off. Several Claude Code sessions side by side, each on its own git worktree (a separate
-# copy of the project on its own branch) and in its own tmux session, so they keep running after
-# you disconnect and the same list shows up from any device you SSH in from.
-#   cs                 open the list (n new session, ↵ open it, Ctrl-q back to the list, q quit)
+# cs: Claude Squad (github.com/smtg-ai/claude-squad). Several Claude Code sessions side by side,
+# each on its own git worktree (a separate copy of the project on its own branch) and in its own
+# tmux session, so they keep running after you disconnect and the same list shows up from any
+# device you SSH in from. modules/67-squad.sh sets the programs it runs: claude and claude-local,
+# with or without permission prompts (MAS_SQUAD_SKIP_PERMISSIONS).
+#   cs                 open the list (n new claude session, N new session with a prompt and a choice
+#                      of claude or claude-local, ↵ open it, Ctrl-q back to the list, q quit)
 #   cs -p '<program>'  run something else in new sessions (any claude-squad option works)
 # Claude Squad only starts inside a git repository: elsewhere, cs offers the ones in ~/projects.
 PATH="$PATH:/opt/homebrew/bin:$HOME/.local/bin"; export PATH   # appended, so your own tools win
@@ -28,7 +30,4 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   cd "${repos[$((n - 1))]}" || exit 1
 fi
 
-for a in "$@"; do
-  case "$a" in -p|--program|--program=*) exec claude-squad "$@" ;; esac
-done
-exec claude-squad -p "claude --dangerously-skip-permissions" "$@"
+exec claude-squad "$@"

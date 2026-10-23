@@ -199,3 +199,14 @@ Each entry says what we found and what we decided.
   - Phase 2 makes the new keys, just before Tailscale logs out and the Mac shuts down, and leaves `~/.first-run/hostkeys-fresh`. Step 3 then keeps them. Only the builder's computer warns, and phase 2 tells them how to fix it.
   - This protects no less: until phase 2 the builder has root anyway, so keys made at first run never guarded against them.
   - Without the marker (an older handover, `--redo hostkeys`), step 3 still makes keys. Its warning names every way the Mac may be known (old and new name, with and without `.local`, the IP address), shows the new fingerprint, and comes again on the final screen.
+
+### Claude Squad's settings and prompts
+
+- **Found:**
+  - Claude Squad reads `~/.claude-squad/config.json` over zero values, not over its defaults. A file with only `profiles` in it leaves `daemon_poll_interval` at 0 and `branch_prefix` empty.
+  - A prompt given with **N** goes in before Claude Code has asked whether to trust the new worktree folder. It ends up in the input box, unsent.
+  - Trusting a parent folder (such as `~/.claude-squad/worktrees`) doesn't cover the worktrees inside it, so the trust question can't be answered in advance.
+- **Decision:**
+  - The module lets Claude Squad write its own defaults first (`claude-squad debug` creates the file), then changes only `default_program` and the `claude` and `claude-local` profiles. Profiles the person added are kept.
+  - Permission prompts stay on unless `MAS_SQUAD_SKIP_PERMISSIONS=yes`. Off means `claude-local --permission-mode default` too, because `claude-local` skips them by default.
+  - The docs say to answer the trust question, then press Enter to send the waiting prompt.
