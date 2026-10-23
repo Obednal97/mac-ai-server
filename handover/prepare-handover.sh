@@ -215,6 +215,20 @@ if [ "$MODE" = root ]; then
     r rm -rf "$SYSROOT/Library/LaunchDaemons/local.wireguard.plist" "$SYSROOT/etc/wireguard"
   fi
 
+  # New SSH host keys now, so the new owner's first connection already sees the Mac's final keys:
+  # only the old owner's computers warn that the "host identification has changed". Built aside,
+  # then swapped in, so sshd never runs without keys. The marker tells first-run step 3 to keep them.
+  log "-- new SSH host keys"
+  if [ "$DRY_RUN" = 1 ]; then log "[dry-run] ssh-keygen -A in a temporary folder, then move the keys into $SYSROOT/etc/ssh"
+  else
+    K="$(mktemp -d)" && mkdir -p "$K/etc/ssh" && tmo 60 ssh-keygen -A -f "$K" >/dev/null 2>&1 &&
+      chown root:wheel "$K"/etc/ssh/ssh_host_* && mv -f "$K"/etc/ssh/ssh_host_* "$SYSROOT/etc/ssh/" && {
+        [ -d "$H/.first-run" ] && touch "$H/.first-run/hostkeys-fresh" && chown "$UIDN" "$H/.first-run/hostkeys-fresh"
+        log "   new ED25519 key: $(ssh-keygen -lf "$SYSROOT/etc/ssh/ssh_host_ed25519_key.pub" 2>/dev/null | awk '{print $2}')"
+      } || log "   !! couldn't make new SSH host keys; the first-run assistant makes them instead"
+    [ -n "$K" ] && rm -rf "$K"
+  fi
+
   log "-- Tailscale"
   if [ "$DRY_RUN" = 1 ]; then log "   status: $("$TAILSCALE" status 2>&1 | head -1)"; fi
   r tmo 60 "$TAILSCALE" logout
@@ -679,6 +693,9 @@ EOF
 Phase 2 is running as root (launchd job $LABEL, pid ${pid:-?}), outside this session.
 In ${delay}s it stops Claude Code, wipes the owner's data, logs out of Tailscale, removes
 password-free sudo and shuts the Mac down. Log: $LOG
+It also gives the Mac new SSH keys, so the next time YOU connect, your computer warns that the
+"host identification has changed". That's expected. Before connecting, run on your computer:
+  ssh-keygen -R $HOST.local; ssh-keygen -R $HOST    (and the IP address, if you used one)
 EOF
     printf 'ACTION NEEDED: %s | %s\n' "after the shutdown, delete '$HOST' from your Tailscale machines" "https://login.tailscale.com/admin/machines"
   fi

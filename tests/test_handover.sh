@@ -488,6 +488,10 @@ printf 'MyWiFi\n' > "$(STATE_DIR_T)/new-ssid"
 printf 'Old-Net-1\nMyWiFi\nOld-Net-2\n' > "$NETS"
 FAKE_DSCL_HOME="$H" FAKE_DSCL_RECORDNAME="$ME sam" ph --root-run "$ME" 0
 assert_eq "$?" 0 "root side runs"
+# new SSH host keys, so the new owner's first connection sees the final ones; first-run is told
+assert_ok "new host keys in place" test -s "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key" -a -s "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key.pub"
+assert_ok "first-run told the keys are fresh" test -f "$H/.first-run/hostkeys-fresh"
+out_has "new ED25519 key: SHA256:" "fingerprint logged"
 assert_logged "^dscl \\. -delete /Users/$ME RecordName sam\$"
 assert_not_logged "^dscl \\. -delete /Users/$ME RecordName $ME\$"
 for b in $BROWSERS; do b="${b//\?/ }"; assert_ok "browser data wiped: ~/$b" test ! -e "$H/$b"; done
@@ -555,6 +559,7 @@ assert_not_logged 'shutdown'
 fresh; mkdir -p "$H/.claude"
 FAKE_DSCL_HOME="$H" ph --dry-run --root-run "$ME" 0
 assert_ok "dry run keeps data" test -d "$H/.claude"
+assert_fails "dry run makes no host keys" test -e "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key"
 assert_not_logged '^shutdown'
 assert_not_logged '^tailscale logout'
 out_has "[dry-run] shutdown -h now" "dry run reports the shutdown"
@@ -659,6 +664,27 @@ assert_not_logged 'models default nope'
 frs7 "\nbig:30b\n"
 assert_not_logged 'models default'
 out_has "already in use" "model in use: nothing to do"
+
+# ================================================================ first-run: host keys (step 3)
+frs3() { fresh; frs_state done-password done-users; rm -f "$HOME/.first-run/done-hostkeys"; }
+# phase 2 already made them: kept, no warning
+frs3; touch "$HOME/.first-run/hostkeys-fresh"
+SSH_CONNECTION="10.0.0.9 50000 192.168.1.103 22" frs "\n"
+out_has "got new SSH keys when it was handed over" "fresh keys acknowledged"
+assert_fails "no keys made again" test -e "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key"
+assert_ok "step done" test -f "$HOME/.first-run/done-hostkeys"
+assert_fails "marker used up" test -e "$HOME/.first-run/hostkeys-fresh"
+out_lacks "host identification has changed" "no warning"
+# an older handover (no marker): keys made here, warning with every name and the fingerprint,
+# repeated on the final screen
+frs3
+SSH_CONNECTION="10.0.0.9 50000 192.168.1.103 22" frs "\n"
+assert_ok "keys made" test -s "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key.pub"
+FP="$(ssh-keygen -lf "$MAS_SYSROOT/etc/ssh/ssh_host_ed25519_key.pub" | awk '{print $2}')"
+out_has "ssh-keygen -R ai-mini.local; ssh-keygen -R ai-mini; ssh-keygen -R 192.168.1.103" "forget-command covers every name"
+out_has "$FP" "fingerprint shown"
+assert_eq "$(grep -c 'host identification has changed' "$OUT")" 2 "warned in step 3 and again at the end"
+assert_fails "warning state cleared" test -e "$HOME/.first-run/hostkey-warning"
 
 # ================================================================ first-run: login name (step 2)
 frs2() { fresh; frs_state done-password; rm -f "$HOME/.first-run/done-name"; frs "$1"; }

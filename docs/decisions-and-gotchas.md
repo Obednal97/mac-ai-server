@@ -192,3 +192,10 @@ Each entry says what we found and what we decided.
   - `ai-keychain-unlock` also unlocks the tmux server's session, running `security -i` inside it through `tmux run-shell`. The password goes through a private named pipe, never a command line or a file.
   - It sends `lock-keychain` before `unlock-keychain`, which clears the stale key.
   - The first-run assistant runs it with the new password straight after the re-sync, and every SSH login checks again. `doctor` reports a locked tmux session.
+
+### SSH host keys at handover
+- **Found:** the first-run assistant made new host keys after the new owner had already connected with the temporary password, so every new owner hit "REMOTE HOST IDENTIFICATION HAS CHANGED" the next time. The warning in step 3 was easy to miss, and its fix named only `<name>.local`.
+- **Decision:**
+  - Phase 2 makes the new keys, just before Tailscale logs out and the Mac shuts down, and leaves `~/.first-run/hostkeys-fresh`. Step 3 then keeps them. Only the builder's computer warns, and phase 2 tells them how to fix it.
+  - This protects no less: until phase 2 the builder has root anyway, so keys made at first run never guarded against them.
+  - Without the marker (an older handover, `--redo hostkeys`), step 3 still makes keys. Its warning names every way the Mac may be known (old and new name, with and without `.local`, the IP address), shows the new fingerprint, and comes again on the final screen.
