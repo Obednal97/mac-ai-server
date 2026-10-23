@@ -1,27 +1,68 @@
 #!/bin/bash
-# Unlocks your login keychain in THIS login session. macOS keeps the keychain's locked/unlocked state
-# per session: auto-login unlocks it for the desktop (and the tmux session started from it), but every
-# SSH login starts with it locked, so Claude Code, gh and anything else that keeps a login in the
-# keychain says "not logged in" there.
+# Unlocks your login keychain in THIS login session and in the background tmux session. macOS keeps
+# the keychain's locked/unlocked state per session: auto-login unlocks it for the desktop (and the
+# tmux session started from it), but every SSH login starts with it locked, so Claude Code, gh and
+# anything else that keeps a login in the keychain says "not logged in" there. The tmux session can
+# be locked too: changing the password (first-run-setup) re-keys the keychain under the running
+# desktop session, which then can't read it until it's unlocked again or the Mac restarts.
 #   ai-keychain-unlock           unlock now (asks for your password if it can't do it by itself)
 #   ai-keychain-unlock --login   at SSH login (~/.zprofile): quiet when there's nothing to do
+#   ai-keychain-unlock --stdin   take the password from standard input (first-run-setup)
 # By itself: with password-free sudo (agent mode) it reads the auto-login password macOS keeps in
-# /etc/kcpassword. Otherwise it asks. The password reaches `security` on standard input, never as an
-# argument. Tests only: MAS_SYSROOT prefixes /etc; MAS_KEYCHAIN overrides the keychain path.
+# /etc/kcpassword. Otherwise it asks. The password reaches `security` on standard input (in tmux,
+# through a private named pipe), never as an argument. Tests only: MAS_SYSROOT prefixes /etc;
+# MAS_KEYCHAIN overrides the keychain path.
 KC="${MAS_SYSROOT:-}/etc/kcpassword"
 KEYCHAIN="${MAS_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
-login=0; [ "${1:-}" = --login ] && login=1
+login=0; stdin=0
+case "${1:-}" in --login) login=1 ;; --stdin) login=1; stdin=1 ;; esac
 say() { [ "$login" = 1 ] && [ -n "${2:-}" ] && return 0; printf '%s\n' "$1"; }
 
-unlocked() { security show-keychain-info "$KEYCHAIN" >/dev/null 2>&1; }
 q() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }   # quote for security -i
-try() {  # try <password>: unlock through security's standard input
-  printf 'unlock-keychain -p %s %s\n' "$(q "$1")" "$(q "$KEYCHAIN")" | security -i >/dev/null 2>&1
-  unlocked
+sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }                              # quote for sh (tmux run-shell)
+# Lock first: a session that had the keychain open before its password changed holds a stale key
+# ("passphrase not correct", even for show-keychain-info), and a plain unlock fails there.
+cmd() { printf 'lock-keychain %s\nunlock-keychain -p %s %s\n' "$(q "$KEYCHAIN")" "$(q "$1")" "$(q "$KEYCHAIN")"; }
+
+# This session
+unlocked() { security show-keychain-info "$KEYCHAIN" >/dev/null 2>&1; }
+try() { cmd "$1" | security -i >/dev/null 2>&1; unlocked; }
+
+# The tmux server's session (where `main` and Remote Control run). Skipped from inside tmux: that's
+# this session already.
+tmux_on() { [ -z "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1 && tmux has-session 2>/dev/null; }
+tmux_unlocked() { tmux run-shell "security show-keychain-info $(sq "$KEYCHAIN") >/dev/null 2>&1" >/dev/null 2>&1; }
+try_tmux() {  # the writer blocks until security opens the pipe; killed if tmux never runs it
+  local d w; d="$(mktemp -d "${TMPDIR:-/tmp}/kc.XXXXXX")" || return 1
+  mkfifo -m 600 "$d/p" || { rm -rf "$d"; return 1; }
+  ( cmd "$1" > "$d/p" ) 2>/dev/null & w=$!
+  tmux run-shell "security -i < $(sq "$d/p") >/dev/null 2>&1" >/dev/null 2>&1
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null; rm -rf "$d"
+  tmux_unlocked
 }
 
 [ -f "$KEYCHAIN" ] || { say "No login keychain at $KEYCHAIN." quiet; exit 0; }
-unlocked && { say "Your login keychain is already unlocked in this session." quiet; exit 0; }
+here=0; unlocked || here=1
+bg=0; tmux_on && ! tmux_unlocked && bg=1
+[ "$here$bg" = 00 ] && { say "Your login keychain is already unlocked in this session." quiet; exit 0; }
+
+unlock_all() {  # unlock_all <password>: every locked session; 0 when none is left locked
+  [ "$here" = 1 ] && try "$1" && here=0
+  [ "$bg" = 1 ] && try_tmux "$1" && bg=0
+  [ "$here$bg" = 00 ]
+}
+where() {
+  case "$here$bg" in
+    10) echo "in this SSH session" ;;
+    01) echo "in the background tmux session (where Claude Code and Remote Control run)" ;;
+    *)  echo "in this SSH session and the background tmux session" ;;
+  esac
+}
+
+# 0. Given on standard input.
+if [ "$stdin" = 1 ]; then
+  IFS= read -r pw; unlock_all "$pw"; rc=$?; pw=""; exit "$rc"
+fi
 
 # 1. By itself: the auto-login password, readable only with admin rights (no prompt: sudo -n).
 if [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" = "$(id -un)" ] \
@@ -29,18 +70,18 @@ if [ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2
   pw="$(sudo -n perl -e 'my @k=(0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F);
     local $/; open F,"<",$ARGV[0] or exit 1; binmode F; my @b=unpack("C*",<F>); my $s="";
     for my $i (0..$#b) { my $c=$b[$i]^$k[$i % 11]; last if $c==0; $s.=chr($c) } print $s' "$KC" 2>/dev/null)"
-  if [ -n "$pw" ] && try "$pw"; then pw=""; say "Unlocked your login keychain for this session." quiet; exit 0; fi
+  if [ -n "$pw" ] && unlock_all "$pw"; then pw=""; say "Unlocked your login keychain." quiet; exit 0; fi
   pw=""
 fi
 
 # 2. Ask, if someone is at a terminal.
 if [ -t 0 ] && [ -t 1 ]; then
-  echo "Your login keychain is locked in this SSH session, so Claude Code and gh can't read their logins."
+  echo "Your login keychain is locked $(where), so Claude Code and gh can't read their logins there."
   IFS= read -r -s -p "Mac password to unlock it (Enter to skip): " pw; echo
   [ -n "$pw" ] || { echo "Skipped. Unlock later with: mac-ai-server unlock"; exit 1; }
-  if try "$pw"; then pw=""; echo "Unlocked."; exit 0; fi
-  pw=""; echo "That didn't unlock it. If the keychain's password differs from your login password, see docs/troubleshooting.md."
+  if unlock_all "$pw"; then pw=""; echo "Unlocked."; exit 0; fi
+  pw=""; echo "That didn't unlock it $(where). If the keychain's password differs from your login password, see docs/troubleshooting.md."
   exit 1
 fi
-say "Your login keychain is locked in this session. Unlock it with: mac-ai-server unlock"
+say "Your login keychain is locked $(where). Unlock it with: mac-ai-server unlock"
 exit 1

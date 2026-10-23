@@ -314,8 +314,14 @@ T1=mini-abcd-efgh-jkmn; NEWPW=NewPass-12345
 # ---- Fix 4: fresh password change passes passwords on stdin only
 fresh; frs_state
 printf '%s' "$T1" > "$PW_STATE"; printf 'x' > "$MAS_SYSROOT/etc/kcpassword"
+# a stand-in ai-keychain-unlock records how it was called and what it read
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/bash\necho "args $*" > "%s"; cat >> "%s"\n' "$T_TMP/ku" "$T_TMP/ku" > "$HOME/.local/bin/ai-keychain-unlock"
+chmod +x "$HOME/.local/bin/ai-keychain-unlock"; rm -f "$T_TMP/ku"
 frs "\n$T1\n$NEWPW\n$NEWPW\n"
 assert_eq "$?" 0 "first-run password step"
+assert_eq "$(head -1 "$T_TMP/ku" 2>/dev/null)" "args --stdin" "the tmux session is re-unlocked with the new password"
+assert_eq "$(sed -n 2p "$T_TMP/ku" 2>/dev/null)" "$NEWPW" "new password given on stdin"
 assert_eq "$(cat "$PW_STATE")" "$NEWPW" "password changed"
 assert_not_logged "$T1"
 assert_not_logged "$NEWPW"

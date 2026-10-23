@@ -56,6 +56,13 @@ sync_keychain() {  # sync_keychain <old> <new>: re-lock the login keychain with 
     "$(dq "$HOME/Library/Keychains/login.keychain-db")" | security -i >/dev/null 2>&1
 }
 
+unlock_sessions() {  # unlock_sessions <new>: sessions that had the keychain open (the desktop, and
+  # the tmux session started from it) hold the old password's key after sync_keychain; re-unlock them
+  [ "$DRY_RUN" = 1 ] && { printf '%s[dry-run] ai-keychain-unlock --stdin <<< <new>%s\n' "$dim" "$rst"; return 0; }
+  [ -x "$HOME/.local/bin/ai-keychain-unlock" ] || return 0
+  printf '%s\n' "$1" | "$HOME/.local/bin/ai-keychain-unlock" --stdin >/dev/null 2>&1 || true
+}
+
 write_kcpassword() {  # write_kcpassword <password>  (needs sudo); 0600 from the start
   [ "$DRY_RUN" = 1 ] && { printf '%s[dry-run] write %s%s\n' "$dim" "$KCPASSWORD" "$rst"; return; }
   ( umask 077; KCPW="$1" perl -e '
@@ -154,7 +161,7 @@ if ! is_done password; then
         read -r -s -p "The temporary password from your card (Enter to skip): " OLD || paused; echo
       fi
       if [ -n "$OLD" ] && sync_keychain "$OLD" "$NEW1"; then
-        touch "$STATE/keychain-synced"; ok "Login keychain updated to your new password."
+        touch "$STATE/keychain-synced"; unlock_sessions "$NEW1"; ok "Login keychain updated to your new password."
       else
         warn "The login keychain wasn't updated. If macOS asks for the keychain password later,"
         warn "choose \"Update Keychain Password\" and enter the temporary password from your card."
@@ -187,7 +194,7 @@ if ! is_done password; then
       err "The password couldn't be changed. Run first-run-setup to try again."; exit 1
     fi
     touch "$STATE/password-changed"
-    sync_keychain "$OLD" "$NEW1" && touch "$STATE/keychain-synced" ||
+    sync_keychain "$OLD" "$NEW1" && touch "$STATE/keychain-synced" && unlock_sessions "$NEW1" ||
       warn "The login keychain wasn't updated; macOS may ask for its old (temporary) password later."
     ok "Password changed. From now on, use your new password."
     unset OLD NEW2
