@@ -52,7 +52,11 @@ runfn "$REMOTE" mod_applies; assert_eq "$?" 0 "remote applies"
 FAKE_OUT_scutil="my-ai-mac" FAKE_OUT_systemsetup="Remote Login: On" FAKE_LAUNCHCTL_LOADED=1 FAKE_NC_5900_RC=0 \
   FAKE_OUT_socketfilterfw="Firewall is enabled. (State = 1)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 0 "remote check passes"
-assert_ok "screen sharing ok names the user" has "ok Screen Sharing is on and .* may connect"
+# on and allowed in, yet it can still refuse everyone (switched on from the command line, macOS 27):
+# that can't be seen from here, so no ok is claimed
+assert_fails "no ok claimed for Screen Sharing" has "^ok Screen Sharing"
+assert_ok "screen sharing info names the user" has "^info Screen Sharing is on and .* is allowed in — whether macOS accepts connections can't be checked automatically"
+assert_ok "and the fix for 'not permitted'" has "switch it off and on at the Mac: System Settings > General > Sharing > Screen Sharing"
 FAKE_OUT_scutil="other" FAKE_OUT_systemsetup="Remote Login: Off" \
   FAKE_OUT_socketfilterfw="Firewall is disabled. (State = 0)" runfn "$REMOTE" mod_check MAS_HOSTNAME="My AI Mac"
 assert_eq "$?" 1 "remote check fails"
