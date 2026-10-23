@@ -275,31 +275,48 @@ if ! is_done hostkeys; then
     ok "Renamed to $NAME."
   fi
   say
-  say "Generating new SSH keys so no previous owner can impersonate this machine..."
-  # Build the new keys elsewhere, then swap them in, so SSH never runs without host keys
-  TMPK="$(mktemp -d)"; mkdir -p "$TMPK/etc/ssh"
-  if run ssh-keygen -A -f "$TMPK" >/dev/null && run sudo sh -c "chown root:wheel '$TMPK'/etc/ssh/* && mv -f '$TMPK'/etc/ssh/ssh_host_* '$SYSROOT/etc/ssh/'"; then
-    run rm -f "$HOME/.ollama/id_ed25519" "$HOME/.ollama/id_ed25519.pub"
-    run launchctl kickstart -k "gui/$(id -u)/local.ollama"
-    ok "New keys generated."
-    if [ -n "${SSH_CONNECTION:-}" ]; then
-      echo "$OLDNAME" > "$STATE/hostkey-warning"
-    fi
-    mark hostkeys
+  if [ -f "$STATE/hostkeys-fresh" ]; then
+    # The handover (phase 2) already made new keys, before this owner's first connection
+    ok "This Mac got new SSH keys when it was handed over, so no previous owner can impersonate it."
+    rm -f "$STATE/hostkeys-fresh"; mark hostkeys
   else
-    err "Couldn't generate new keys. The old ones are still in place. Run first-run-setup to try again."
+    say "Generating new SSH keys so no previous owner can impersonate this machine..."
+    # Build the new keys elsewhere, then swap them in, so SSH never runs without host keys
+    TMPK="$(mktemp -d)"; mkdir -p "$TMPK/etc/ssh"
+    if run ssh-keygen -A -f "$TMPK" >/dev/null && run sudo sh -c "chown root:wheel '$TMPK'/etc/ssh/* && mv -f '$TMPK'/etc/ssh/ssh_host_* '$SYSROOT/etc/ssh/'"; then
+      run rm -f "$HOME/.ollama/id_ed25519" "$HOME/.ollama/id_ed25519.pub"
+      run launchctl kickstart -k "gui/$(id -u)/local.ollama"
+      ok "New keys generated."
+      # The names this computer may know the Mac by: the old name and the address it connected to
+      if [ -n "${SSH_CONNECTION:-}" ]; then
+        printf '%s\n%s\n' "$OLDNAME" "$(printf '%s' "$SSH_CONNECTION" | awk '{print $3}')" > "$STATE/hostkey-warning"
+      fi
+      mark hostkeys
+    else
+      err "Couldn't generate new keys. The old ones are still in place. Run first-run-setup to try again."
+    fi
+    rm -rf "$TMPK"
   fi
-  rm -rf "$TMPK"
 fi
 NAME="$(scutil --get LocalHostName)"
 # The name they log in with: their own login name (the newest alias) if they added one
 LOGIN="$(dscl . -read "/Users/$USER" RecordName 2>/dev/null | sed 's/^RecordName://' | awk '{print $NF}')"
 LOGIN="${LOGIN:-$USER}"
-if [ -f "$STATE/hostkey-warning" ]; then
+hostkey_help() {  # what to run on their computer after new host keys, and the fingerprint to expect
+  local names="" n fp
+  for n in $(sed -n 1p "$STATE/hostkey-warning") "$NAME"; do
+    case " $names " in *" $n.local "*) ;; *) names="$names $n.local $n" ;; esac
+  done
+  n="$(sed -n 2p "$STATE/hostkey-warning")"; [ -n "$n" ] && names="$names $n"
   warn "Your computer will warn that the \"host identification has changed\" the next time you connect."
-  say  "  That's expected. Before connecting again, run this on ${b}your${rst} computer:"
-  say  "    ${b}ssh-keygen -R $(cat "$STATE/hostkey-warning").local${rst}    (or the IP address you used)"
-fi
+  say  "  That's expected: this Mac has new SSH keys. Before connecting again, run this on ${b}your${rst} computer"
+  say  "  (it forgets the old keys under every name you may have used):"
+  say  "    ${b}$(for n in $names; do printf 'ssh-keygen -R %s; ' "$n"; done | sed 's/; $//')${rst}"
+  fp="$(ssh-keygen -lf "$SYSROOT/etc/ssh/ssh_host_ed25519_key.pub" 2>/dev/null | awk '{print $2}')"
+  [ -n "$fp" ] && say "  When it asks whether to trust this Mac, check it shows ${b}$fp${rst} (ED25519), then type yes."
+  return 0
+}
+[ -f "$STATE/hostkey-warning" ] && hostkey_help
 
 # ---------------------------------------------------------------- 4. tailscale
 if ! is_done tailscale; then
@@ -385,7 +402,7 @@ if ! is_done sshkey; then
     say
     say "Test it: open a ${b}new${rst} terminal on your computer and connect the same way you did just now"
     say "(e.g. ${b}ssh $LOGIN@$NAME.local${rst}). It should log in without asking for this Mac's password."
-    [ -f "$STATE/hostkey-warning" ] && say "Remember to run ${b}ssh-keygen -R $(cat "$STATE/hostkey-warning").local${rst} first (see above)."
+    [ -f "$STATE/hostkey-warning" ] && say "Remember to run the ${b}ssh-keygen -R${rst} line from step 3 first (it's repeated at the end)."
     if ask_yn "Did the key login work, and do you want to switch off SSH password logins?" n; then
       run sudo sh -c 'printf "PasswordAuthentication no\nKbdInteractiveAuthentication no\n" > "$1"' sh "$SYSROOT/etc/ssh/sshd_config.d/200-keys-only.conf"
       ok "SSH password login disabled. Screen Sharing still works with your password, as a fallback."
@@ -480,7 +497,8 @@ if ! is_done extras && [ -x "$MAS_CMD" ]; then
 fi
 
 # ---------------------------------------------------------------- finish
-rm -f "$STATE/pending" "$STATE/hostkey-warning" "$HOME/Desktop/Start Here.command"
+HK_WARN=0; [ -f "$STATE/hostkey-warning" ] && HK_WARN=1
+rm -f "$STATE/pending" "$HOME/Desktop/Start Here.command"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"; MODEL="${MODEL:-qwen3.6:27b-mxfp8}"
 cat > "$HOME/WELCOME.txt" <<EOF
 YOUR AI $MODEL_UC · QUICK REFERENCE
@@ -530,4 +548,6 @@ ${grn}${b}Your $MODEL_NAME is set up and belongs to you.${rst}
 Connect from anywhere with ${b}ssh $LOGIN@$NAME${rst} (Tailscale on). This screen appears every time you log in:
 EOF
 if [ -x "$(dirname "$0")/ai-motd" ]; then "$(dirname "$0")/ai-motd"; fi
+# Last, so it's on screen when they disconnect: the host key warning is easy to miss mid-setup
+if [ "$HK_WARN" = 1 ]; then say; hostkey_help; rm -f "$STATE/hostkey-warning"; fi
 exit 0

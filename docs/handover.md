@@ -27,6 +27,7 @@ This is the complete list. The new owner gets the same admin account, so anythin
 - `~/setup-ai-server.log`, `~/WELCOME.txt` and opencode's settings, if present.
 
 **Removed:**
+- the Mac's SSH host keys: phase 2 makes new ones just before it shuts down, so the new owner's first connection already sees the final keys. Only **your** computer warns that the "host identification has changed" the next time you connect; phase 2 prints the `ssh-keygen -R …` line that fixes it;
 - passwordless admin: phase 2 removes every `/etc/sudoers.d/*-nopasswd` file, not just the one this installer created. Phase 1 also sets `MAS_AGENT_MODE=no` in `config.env`, so the new owner's first `mac-ai-server install` doesn't quietly turn agent mode back on;
 - extra login names you added to the account (first-run step 2), so the new owner logs in with the name on the card;
 - the Mac from your Tailscale network.
@@ -171,7 +172,7 @@ It walks through seven steps:
 
 1. **New password.** It replaces the temporary one, and also updates auto-login and the keychain.
 2. **Their name** on the account, and optionally **a login name of their own** (e.g. `sam`), so they connect with `ssh sam@<name>`. It's an alias of the same account (a second `RecordName`), not a rename: renaming the account would break every path under `/Users/<user>`, from the models to Claude Code's settings. The original name keeps working.
-3. **Machine name, plus fresh security keys** for SSH, so the previous owner's keys can't impersonate the Mac. The new owner's computer will warn that the "host identification has changed". The assistant explains the one command that fixes it.
+3. **Machine name.** The SSH security keys were already replaced in phase 2, so the previous owner's keys can't impersonate the Mac and the new owner never sees a "host identification has changed" warning. After a handover from an older version (or `--redo hostkeys`) the assistant makes new keys here instead. It then shows the command that makes their computer forget the old keys under every name (`<name>.local`, `<name>`, the IP address) and the new fingerprint to check, and repeats both on the final screen.
 4. **Their own Tailscale**, with a reminder to disable key expiry.
 5. **An SSH key** (optional), with an option to switch off password logins. It shows what the whole line looks like, accepts a key pasted without its `ssh-ed25519` start, checks it with `ssh-keygen`, and asks again if it was cut short. `ssh-copy-id` from their computer is offered as an alternative.
 6. **Other people** (optional): "Will anyone else use this Mac?" *Add someone now* turns on multi-user mode and runs `mac-ai-server users add` for each name. *Maybe later* only turns on the mode. *No* changes nothing. See [multi-user.md](multi-user.md).
