@@ -38,11 +38,6 @@ _mas_pm_charge_limit() {
   [ "$maj" -gt 26 ] || { [ "$maj" -eq 26 ] && [ "$min" -ge 4 ]; }
 }
 
-# /Library/Application Support/com.apple.TCC/TCC.db always exists and is world-readable by file mode,
-# but macOS blocks reads of it unless the app has Full Disk Access. So readable = granted.
-_mas_pm_fda_path() { printf '%s' "${MAS_FDA_TEST_PATH:-/Library/Application Support/com.apple.TCC/TCC.db}"; }
-_mas_pm_fda_ok() { head -c 1 "$(_mas_pm_fda_path)" >/dev/null 2>&1; }
-
 # Prints the WifiScan status (authorized, denied, ...), or nothing if unknown.
 _mas_pm_location_status() {
   local app out json
@@ -73,7 +68,7 @@ mod_run() {
   mas_step "Permissions that need a click in System Settings"
   echo "macOS may say $term needs to quit to apply a change. Choose Later. It takes effect next time $term restarts. Choosing Quit & Reopen would stop this install."
 
-  if _mas_pm_fda_ok; then echo "Full Disk Access: already on."
+  if mas_fda_ok; then echo "Full Disk Access: already on."
   else _mas_pm_step "$_MAS_PM_SEC?Privacy_AllFiles" \
     "turn on Full Disk Access for $term (lets Claude read and manage files anywhere)" \
     "System Settings > Privacy & Security > Full Disk Access"; fi
@@ -108,7 +103,7 @@ mod_run() {
 mod_check() {
   local rc=0 term st
   term="$(_mas_pm_term)"
-  if _mas_pm_fda_ok; then echo "ok Full Disk Access is on for $term"
+  if mas_fda_ok; then echo "ok Full Disk Access is on for $term"
   else echo "fail Full Disk Access is off for $term — System Settings > Privacy & Security > Full Disk Access, switch on $term, choose Later, then restart $term"; rc=1; fi
   echo "info App Management — can't be checked automatically (System Settings > Privacy & Security > App Management)"
   echo "info Remote Login 'Allow full disk access for remote users' — can't be checked automatically (System Settings > General > Sharing > Remote Login (i))"

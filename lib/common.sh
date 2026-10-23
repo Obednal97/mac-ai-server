@@ -22,9 +22,20 @@ mas_mu_dropin() { printf '%s' "${MAS_SYSROOT:-}/Library/Application Support/Clau
 # The machine-wide settings only switch plugins on; they don't install them (on a real Mac a new
 # account had none, even after starting claude). Installing needs no Claude login, and a plugin
 # that's already installed is left as it is.
+# A new account only knows the built-in directory, and `plugin install` ignores the marketplaces the
+# machine-wide settings declare (Claude Code 2.1.309), so each one is added first. Adding one it
+# already has is fine; one that won't add shows up as its plugins failing to install.
 mas_mu_install_plugins() {
   local u="$1" claude="$2/.local/bin/claude" p bad=""
   [ -f "$(mas_mu_dropin)" ] && sudo test -x "$claude" || return 0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    ( cd / && sudo -u "$u" -H "$claude" plugin marketplace add "$p" </dev/null >/dev/null 2>&1 ) || true
+  done < <(/usr/bin/python3 -I -c 'import json, sys
+for v in (json.load(open(sys.argv[1])).get("extraKnownMarketplaces") or {}).values():
+    s = v.get("source") or {}
+    a = s.get("repo") or s.get("url") or s.get("path")
+    if a: print(a)' "$(mas_mu_dropin)" 2>/dev/null)
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     ( cd / && sudo -u "$u" -H "$claude" plugin install "$p" </dev/null >/dev/null 2>&1 ) || bad="$bad $p"
@@ -33,6 +44,11 @@ for k, v in sorted((json.load(open(sys.argv[1])).get("enabledPlugins") or {}).it
     if v is True: print(k)' "$(mas_mu_dropin)" 2>/dev/null)
   [ -z "$bad" ] || { mas_warn "Couldn't install these shared plugins for $u:$bad. They can run: claude plugin install <name>"; return 1; }
 }
+
+# mas_fda_ok: this process has Full Disk Access. TCC.db always exists and is world-readable by file
+# mode, but macOS blocks reads of it unless the app has Full Disk Access. So readable = granted.
+# Inside tmux the app is tmux itself (its server starts from a LaunchAgent), which never has it.
+mas_fda_ok() { head -c 1 "${MAS_FDA_TEST_PATH:-/Library/Application Support/com.apple.TCC/TCC.db}" >/dev/null 2>&1; }
 
 # mas_free_gb: free space on / in whole GB.
 mas_free_gb() {

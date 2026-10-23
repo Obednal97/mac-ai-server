@@ -204,6 +204,15 @@ chmod +x "$FB/sysadminctl" "$FB/id" "$FB/dscl" "$FB/createhomedir" "$MAS_BREW_PR
 export FAKE_UD="$UD" FAKE_DIR="$TESTS_DIR/fakes" FAKE_DSCL_STDIN="$T_TMP/dscl-stdin" FAKE_OUT_scutil=ai-mini
 PACKS="$HOME/.mac-ai-server/users"
 TSN=ai-mini.example-tailnet.ts.net
+# Full Disk Access: on for these tests (a readable stand-in for TCC.db), off where a test says so
+export MAS_FDA_TEST_PATH="$T_TMP/fda-readable"; echo x > "$MAS_FDA_TEST_PATH"
+# without it macOS stalls account changes for 5 minutes and leaves them half-done, so nothing starts
+MAS_FDA_TEST_PATH="$T_TMP/no-fda" run users add ann
+assert_eq "$?" 1 "users add stops without Full Disk Access"
+assert_ok "names Full Disk Access" has "needs Full Disk Access"
+assert_ok "says how to leave tmux" has "Ctrl-b then d"
+assert_not_logged '^sysadminctl'
+assert_not_logged '^install.sh'
 run users add "Bad Name"
 assert_eq "$?" 1 "users add rejects a bad name"
 run users add root
@@ -234,6 +243,8 @@ assert_ok "card has the invite link" grep -qF 'https://login.tailscale.com/admin
 assert_ok "card has the full Tailscale name" grep -qF "ssh sam@$TSN" "$PACKS/sam/card.txt"
 assert_ok "card says to use their own account" grep -q 'YOUR OWN account' "$PACKS/sam/card.txt"
 assert_ok "card printed" has "YOUR ACCOUNT ON THE AI MAC"
+# Screen Sharing switched on from the command line refuses everyone on macOS 27, so cards offer SSH only
+assert_fails "card doesn't offer Screen Sharing" grep -qi 'screen sharing\|vnc://' "$PACKS/sam/card.txt"
 # no link yet: added later with users card --link
 FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/kimhome" MAS_MULTIUSER=yes run users add kim </dev/null
 assert_not_logged '^install.sh'
@@ -247,13 +258,16 @@ run users card nobody-here
 assert_eq "$?" 1 "no card for an unknown name"
 # the shared plugins: the machine-wide settings only switch them on, so each new person gets a copy
 PR="$T_TMP/pluginroot"; mkdir -p "$PR/Library/Application Support/ClaudeCode/managed-settings.d" "$T_TMP/piahome/.local/bin"
-printf '%s\n' '{"enabledPlugins": {"superpowers@anthropic-plugin-directory": true, "off@x": false, "tool@someone-gh": true}}' \
+printf '%s\n' '{"extraKnownMarketplaces": {"someone-gh": {"source": {"source": "github", "repo": "someone/plugins"}}},
+  "enabledPlugins": {"superpowers@anthropic-plugin-directory": true, "off@x": false, "tool@someone-gh": true}}' \
   > "$PR/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
 ln -sf "$TESTS_DIR/fakes/claude" "$T_TMP/piahome/.local/bin/claude"
 MAS_SYSROOT="$PR" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/piahome" MAS_MULTIUSER=yes run users add pia </dev/null
 assert_eq "$?" 0 "users add with shared plugins ok"
 assert_logged '^claude plugin install superpowers@anthropic-plugin-directory$'
 assert_logged '^claude plugin install tool@someone-gh$'
+assert_logged '^claude plugin marketplace add someone/plugins$'
+assert_ok "marketplace added before its plugin" test "$(grep -n -m1 'marketplace add someone/plugins' "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n -m1 'plugin install tool@someone-gh' "$FAKE_LOG" | cut -d: -f1)"
 assert_not_logged 'plugin install off@x'
 FAKE_RC=1 MAS_SYSROOT="$PR" FAKE_OUT_dscl="NFSHomeDirectory: $T_TMP/piahome" MAS_MULTIUSER=yes run users add pib </dev/null
 assert_ok "a plugin that won't install is named, with the fix" has "Couldn't install these shared plugins for pib: superpowers@anthropic-plugin-directory tool@someone-gh"
@@ -281,6 +295,7 @@ assert_ok "peer added to the server" grep -qx '# user: wes' "$WGC"
 assert_ok "QR code made" test -s "$PACKS/wes/wes-ai-mini.png"
 assert_ok "card has WireGuard steps" grep -q 'Import tunnel' "$PACKS/wes/card.txt"
 assert_ok "card connects over the tunnel" grep -qF 'ssh wes@10.77.0.1' "$PACKS/wes/card.txt"
+assert_fails "WireGuard card doesn't offer Screen Sharing" grep -qi 'screen sharing\|vnc://' "$PACKS/wes/card.txt"
 assert_not_logged 'PRIV'
 assert_not_logged '^tailscale'
 MAS_WIREGUARD=yes run users card wes
@@ -299,6 +314,11 @@ assert_not_logged 'deleteUser'
 echo nope | run users remove sam
 assert_eq "$?" 1 "remove not confirmed"
 assert_not_logged 'deleteUser'
+FAKE_GROUP_MEMBER_RC=67 MAS_FDA_TEST_PATH="$T_TMP/no-fda" run users remove sam <<< "sam"
+assert_eq "$?" 1 "users remove stops without Full Disk Access"
+assert_ok "remove names Full Disk Access" has "needs Full Disk Access"
+assert_not_logged 'deleteUser'
+assert_ok "info pack kept" test -d "$PACKS/sam"
 FAKE_GROUP_MEMBER_RC=67 run users remove sam <<< "sam"
 assert_eq "$?" 0 "remove confirmed"
 assert_logged '^sysadminctl -deleteUser sam'

@@ -20,7 +20,7 @@ mac-ai-server users add sam "Sam Example" --wireguard   # they connect with Wire
 1. **Multi-user mode comes on** if it isn't already (see below).
 2. **macOS makes a Standard account** (not an administrator) with a private home folder.
 3. **The account gets a random temporary password** like `k7mp-x2qa-9fhd`. It's set through `dscl`'s standard input, so it never appears in a command line. At their first login they choose their own.
-4. **They can connect** over SSH and Screen Sharing. On a fresh Mac both are open to administrators only.
+4. **They can connect** over SSH. On a fresh Mac it's open to administrators only. They're let into Screen Sharing too, but the card leaves it out: when Screen Sharing was switched on from the command line, macOS 27 refuses everyone until it's switched off and on again at the Mac (System Settings → General → Sharing).
 5. **Claude Code is installed** in their account, with its own copy of each shared plugin (see below). They log in with **their own** Claude account the first time they run `claude`.
 6. **You get an info pack** in `~/.mac-ai-server/users/sam/`, readable only by you. It has:
    - a card with their account name, the temporary password, how to connect and what to do once they're in;
@@ -71,6 +71,10 @@ mac-ai-server users remove sam   # delete sam's account, files and info pack (as
 
 `users remove` won't remove you, an administrator or a system account. Remove administrators in System Settings → Users & Groups.
 
+**`users add` and `users remove` need Full Disk Access.** macOS checks it before it changes an account. Without it, each change stalls for 5 minutes and then fails, leaving the account half-done (found on a real Mac, macOS 27). So both commands check first and stop if it's missing.
+- **The tmux session never has it.** macOS checks tmux itself, which starts from a LaunchAgent. Leave tmux (**Ctrl-b** then **d**) and run the command from the plain shell.
+- **Over SSH,** the plain shell has it when **Allow full disk access for remote users** is on (System Settings → General → Sharing → Remote Login ⓘ). In a terminal app at the Mac, that app needs Full Disk Access.
+
 ## What multi-user mode changes
 
 `MAS_MULTIUSER=yes` in `~/.mac-ai-server/config.env`. Each install or `mac-ai-server update` keeps these in step:
@@ -84,6 +88,8 @@ mac-ai-server users remove sam   # delete sam's account, files and info pack (as
   - **Not shared:** MCP servers you added yourself (`claude mcp add`), such as ones that need a login. Your settings and credentials aren't shared either.
   - **Locked on:** Claude Code treats the machine-wide settings as managed, so the shared plugins are always on for everyone, and people can't switch them off in their own account. They can still add plugins of their own.
   - **Each account gets its own copy.** The machine-wide settings only switch plugins on. They don't install them: on a real Mac, a new account had none of the shared plugins, even after starting `claude`. So `users add` installs each one into the new account (`claude plugin install`, which needs no Claude login), and `mac-ai-server install --only multiuser` installs any new ones for people who already have Claude Code. Someone can also run `claude plugin install <name>@<marketplace>` themselves.
+  - **Marketplaces are added first.** A new account only knows Claude Code's built-in directory (`anthropic-plugin-directory`), and `claude plugin install` ignores the marketplaces the machine-wide settings declare. So each shared marketplace is added to the account (`claude plugin marketplace add`) before its plugins. `claude-plugins-official` counts as one of these: it isn't built in any more.
+  - **The same plugin from two marketplaces** (for example `superpowers` from both) is installed once. Claude Code sees it's the same plugin and skips the second.
   - **Keeping it current:** after you add, change or remove a plugin or skill, run `mac-ai-server install --only multiuser`. `doctor` tells you when this is needed. Until then, a plugin you switch off for yourself stays on, because the shared settings still list it.
 
 Turning it off (`MAS_MULTIUSER=no`, then `mac-ai-server install --only claude`) removes the shared copies, plugins and skills. It doesn't delete anyone's account, and your home folder stays private.
@@ -105,6 +111,9 @@ Checked by hand on a Mac mini (macOS 27, Claude Code 2.1.308), with throwaway ac
   - their file carries the Mac's real public key, and a second WireGuard interface on the same Mac, using that file's key, completed a handshake with it;
   - `users remove` revokes the key at once, and turning WireGuard off stops everything.
 - **`users remove`:** removes the account, its home folder, its info pack and its SSH and Screen Sharing group entries.
+- **Re-checked with Claude Code 2.1.309 (macOS 27):**
+  - a new account knew only the built-in `anthropic-plugin-directory`, so the plugins from `claude-plugins-official` and from a GitHub marketplace failed to install. They install once their marketplaces are added first;
+  - run from the tmux session, `users add` stalled for 5 minutes on one account write, and `users remove` stalled and failed (directory service error -14987), leaving an account with no home folder or password. Run over SSH with Full Disk Access, the add took about a minute and the delete under a second.
 
 **Not tested yet:**
 - a WireGuard client on another network through a real router port forward;
