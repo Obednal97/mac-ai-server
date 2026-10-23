@@ -23,19 +23,48 @@ runfn mod_applies MAS_SQUAD=no; assert_eq "$?" 1 "MAS_SQUAD=no skips"
 runfn mod_check; assert_eq "$?" 1 "check fails before install"
 assert_ok "fail line gives the fix" grep -q '^fail .*mac-ai-server install --only squad' "$OUT"
 
-# first run: brew install, then cs
-runfn mod_run; assert_eq "$?" 0 "first run ok"
+# first run: brew install, then cs (the fake brew installs nothing, so the programs can't be set yet)
+runfn mod_run; assert_eq "$?" 1 "first run: no claude-squad after brew install"
+assert_ok "warns about the programs" grep -q "Couldn't set Claude Squad's programs" "$OUT.err" "$OUT"
 assert_logged '^brew install claude-squad$'
 assert_ok "cs installed" cmp -s "$REPO_DIR/bin/cs" "$HOME/.local/bin/cs"
 runfn mod_check; assert_eq "$?" 1 "check fails while claude-squad is missing"
 
 # already installed: no brew install
-printf '#!/bin/bash\necho "claude-squad $*" >> "$FAKE_LOG"\necho "cwd $PWD" >> "$FAKE_LOG"\n' > "$BP/claude-squad"
+# Fake claude-squad: logs; `debug` writes its default config the first time, like the real one.
+cat > "$BP/claude-squad" <<'F'
+#!/bin/bash
+echo "claude-squad $*" >> "$FAKE_LOG"
+echo "cwd $PWD" >> "$FAKE_LOG"
+c="$HOME/.claude-squad/config.json"
+[ "${1:-}" = debug ] && [ ! -f "$c" ] && mkdir -p "${c%/*}" &&
+  printf '{"default_program": "/x/claude", "auto_yes": false, "daemon_poll_interval": 1000, "branch_prefix": "me/"}\n' > "$c"
+exit 0
+F
 chmod +x "$BP/claude-squad"
+CONF="$HOME/.claude-squad/config.json"
+jq_() { /usr/bin/python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$CONF" "$1"; }
 runfn mod_run; assert_eq "$?" 0 "re-run ok"
 assert_not_logged '^brew install'
+assert_logged '^claude-squad debug$'
+assert_eq "$(jq_ 'd["default_program"]')" "claude" "asks before acting by default"
+assert_eq "$(jq_ '[p["program"] for p in d["profiles"]]')" "['claude', 'claude-local --permission-mode default']" "claude and claude-local, both asking"
+assert_eq "$(jq_ 'd["daemon_poll_interval"], d["branch_prefix"]')" "(1000, 'me/')" "Claude Squad's own settings kept"
 runfn mod_check; assert_eq "$?" 0 "check ok after install"
-assert_ok "ok line" grep -q '^ok Claude Squad' "$OUT"
+assert_ok "ok line says it asks" grep -q '^ok Claude Squad.*ask before' "$OUT"
+# skip permissions; the person's own profiles are kept after ours
+/usr/bin/python3 - "$CONF" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["profiles"].append({"name": "aider", "program": "aider"}); json.dump(d, open(sys.argv[1], "w"))
+PY
+runfn mod_check MAS_SQUAD_SKIP_PERMISSIONS=yes; assert_eq "$?" 1 "check fails when the setting changed"
+assert_ok "fail line gives the fix" grep -q '^fail .*aren.t set as configured.*--only squad' "$OUT"
+runfn mod_run MAS_SQUAD_SKIP_PERMISSIONS=yes; assert_eq "$?" 0 "run with skip ok"
+assert_not_logged '^claude-squad debug$'
+assert_eq "$(jq_ 'd["default_program"]')" "claude --dangerously-skip-permissions" "skip: claude"
+assert_eq "$(jq_ '[p["name"]+"="+p["program"] for p in d["profiles"]]')" "['claude=claude --dangerously-skip-permissions', 'claude-local=claude-local', 'aider=aider']" "skip: both, own profile kept"
+runfn mod_check MAS_SQUAD_SKIP_PERMISSIONS=yes; assert_eq "$?" 0 "check ok with skip"
+assert_ok "ok line says it skips" grep -q '^ok Claude Squad.*skip permission' "$OUT"
 echo "old" > "$HOME/.local/bin/cs"
 runfn mod_check; assert_eq "$?" 1 "check fails on an old cs"
 
@@ -44,12 +73,9 @@ CS() { ( cd "$1" && shift && PATH="$BP:/usr/bin:/bin" /bin/bash "$REPO_DIR/bin/c
 P="$HOME/projects"; mkdir -p "$P/alpha" "$P/beta" "$P/notes"
 git -C "$P/alpha" init -q; git -C "$P/beta" init -q
 : > "$FAKE_LOG"; CS "$P/alpha"
-assert_logged '^claude-squad -p claude --dangerously-skip-permissions$'
+assert_logged '^claude-squad $'
 : > "$FAKE_LOG"; CS "$P/alpha" -p aider
 assert_logged '^claude-squad -p aider$'
-assert_not_logged 'dangerously'
-: > "$FAKE_LOG"; CS "$P/alpha" --autoyes
-assert_logged '^claude-squad -p claude --dangerously-skip-permissions --autoyes$'
 # outside a repo: pick a project from ~/projects
 : > "$FAKE_LOG"; echo 2 | CS "$HOME"
 assert_logged "^cwd .*/home/projects/beta\$"
