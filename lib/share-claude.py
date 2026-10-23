@@ -23,7 +23,9 @@ import tempfile
 
 MARKET = "mac-ai-server-shared"
 PLUGIN = "shared-skills"
-BUILTIN = {"claude-plugins-official", "anthropic-plugin-directory"}
+BUILTIN = {"anthropic-plugin-directory"}
+# Built in on older Claude Code; a new account now lacks it, so it's shared like any GitHub marketplace
+OFFICIAL = {"claude-plugins-official": {"source": "github", "repo": "anthropics/claude-plugins-official"}}
 
 
 def load(path):
@@ -88,7 +90,7 @@ def wanted(home, market_dir):
         m = pid.rsplit("@", 1)[1]
         if m in BUILTIN:
             continue
-        src = (known.get(m) or {}).get("source") or ((settings.get("extraKnownMarketplaces") or {}).get(m) or {}).get("source")
+        src = (known.get(m) or {}).get("source") or ((settings.get("extraKnownMarketplaces") or {}).get(m) or {}).get("source") or OFFICIAL.get(m)
         if isinstance(src, dict) and src.get("source") in ("github", "git", "url"):
             markets[m] = {"source": src}
         else:

@@ -274,6 +274,12 @@ ts_name() {
 private_write() {  # private_write <file>: stdin to a new 0600 file
   rm -f "$1"; ( umask 077; cat > "$1" )
 }
+# need_fda <what>: macOS checks Full Disk Access before changing an account record. Without it the
+# change stalls for 5 minutes, then fails with the account half-done, so stop before starting.
+need_fda() {
+  mas_fda_ok && return 0
+  mas_die "$1 needs Full Disk Access, and this shell doesn't have it (inside the tmux session it never does). Leave tmux (Ctrl-b then d) and run this again from the plain shell. Over SSH that needs 'Allow full disk access for remote users' (System Settings > General > Sharing > Remote Login (i)); in a terminal app, Full Disk Access for that app."
+}
 
 # render_card <name>: the info pack's card, from what users add saved in $USERS_DIR/<name>
 render_card() {
@@ -286,7 +292,6 @@ YOUR ACCOUNT ON THE AI MAC "$host"
 Your account:        $name
 Temporary password:  ${pw:-(ask whoever set it up)}
 The first time you log in over SSH, you're asked to choose your own password.
-(Only using Screen Sharing? Change it in System Settings > Users & Groups.)
 
 CARD
   if [ "$method" = wireguard ]; then
@@ -301,7 +306,6 @@ CARD
      ssh $name@$(mas_wg_net).1
    The first time, it asks whether to trust this computer: type yes.
    "Connection timed out" means the tunnel is off, or tell whoever set it up.
-   Screen Sharing (Mac: Finder > Go > Connect to Server):  vnc://$(mas_wg_net).1
    The tunnel only reaches this Mac, nothing else on its network.
 CARD
   else
@@ -316,7 +320,6 @@ CARD
 3. With Tailscale switched on, connect from Terminal:
      ssh $name@$tsn
    The first time, it asks whether to trust this computer: type yes.
-   Screen Sharing (Mac: Finder > Go > Connect to Server):  vnc://$tsn
 CARD
   fi
   cat <<CARD
@@ -358,6 +361,7 @@ users_add() {
   if [ "$method" = wireguard ] && { [ "${MAS_WIREGUARD:-no}" != yes ] || [ -z "${MAS_WG_ENDPOINT:-}" ] || ! sudo test -f "$(mas_wg_conf)"; }; then
     mas_die "WireGuard isn't set up. Set MAS_WIREGUARD=yes and MAS_WG_ENDPOINT in ~/.mac-ai-server/config.env, run: mac-ai-server install --only wireguard, then try again."
   fi
+  need_fda "Adding an account"
   if [ "${MAS_MULTIUSER:-no}" != yes ]; then
     echo "Turning on multi-user mode first (your home folder becomes private, claude-local and chat are shared)."
     MAS_MULTIUSER=yes "$MAS_INSTALL_SH" --yes --only claude,multiuser || mas_die "Couldn't turn on multi-user mode, so no account was added."
@@ -452,6 +456,7 @@ users_remove() {
   people | grep -qx "$name" || mas_die "There's no person's account called $name (system accounts can't be removed here)."
   [ "$name" = "$(id -un)" ] && mas_die "That's your own account."
   is_admin "$name" && mas_die "$name is an administrator. Remove administrators in System Settings > Users & Groups."
+  need_fda "Removing an account"
   echo "This deletes the account $name and everything in its home folder. It can't be undone."
   read -r -p "Type the account name to confirm: " ok
   [ "$ok" = "$name" ] || mas_die "Not confirmed; nothing was changed."

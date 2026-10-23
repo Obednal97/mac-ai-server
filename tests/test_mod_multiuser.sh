@@ -68,6 +68,10 @@ WRAP
 chmod +x "$W/dscl"
 PATH="$W:$PATH" runfn mod_run MAS_MULTIUSER=yes
 assert_logged '^claude plugin install superpowers@anthropic-plugin-directory$'
+# a new account only knows the built-in directory, so each shared marketplace is added before its plugins
+assert_logged '^claude plugin marketplace add someone/plugins$'
+assert_logged "^claude plugin marketplace add $MARKET\$"
+assert_ok "marketplace added before its plugin" test "$(grep -n -m1 'marketplace add someone/plugins' "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n -m1 'plugin install tool@someone-gh' "$FAKE_LOG" | cut -d: -f1)"
 assert_ok "says who got them" has "Shared plugins installed for: ann$"
 assert_eq "$(grep -c '^claude plugin install' "$FAKE_LOG")" 3 "one install per shared plugin, for ann only"
 
@@ -111,6 +115,16 @@ assert_eq "$?" 1 "check notices an edited skill"
 runfn mod_run MAS_MULTIUSER=yes
 assert_ok "edit copied" grep -q changed "$MARKET/shared-skills/skills/trap/sub/real.md"
 rm -rf "$HOME/.claude/skills/trap" "$HOME/.claude/skills/linked-md" "$HOME/.claude/skills/linked-skill"
+
+# claude-plugins-official isn't built in any more (a new account doesn't have it), so it's shared with its
+# source like any GitHub marketplace: Anthropic's repo when the owner's file doesn't list one
+/usr/bin/python3 - "$HOME/.claude/settings.json" <<'PY'
+import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["enabledPlugins"]["dev@claude-plugins-official"]=True; json.dump(d,open(p,"w"))
+PY
+runfn mod_run MAS_MULTIUSER=yes
+assert_ok "official plugin shared" grep -q 'dev@claude-plugins-official' "$DROPIN"
+assert_eq "$(j "d['extraKnownMarketplaces']['claude-plugins-official']['source']['repo']")" "anthropics/claude-plugins-official" "official marketplace shared with its source"
+assert_eq "$(j "'anthropic-plugin-directory' in d['extraKnownMarketplaces']")" "False" "built-in directory not declared"
 
 chmod 755 "$HOME"
 runfn mod_check MAS_MULTIUSER=yes

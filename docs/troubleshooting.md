@@ -51,6 +51,7 @@ If you want to report a problem, `mac-ai-server doctor --report` gives you the c
 | `doctor`: `fail Plugin ... isn't installed` | A plugin install failed | `mac-ai-server install --only agent-tools`. |
 | `doctor`: `fail WifiScan has no Location permission` | The "Allow" box was missed or denied | System Settings > Privacy & Security > Location Services, then switch on **Wi-Fi Setup**. |
 | `doctor`: `fail Full Disk Access is off for Terminal` | Not switched on yet, or Terminal not restarted | Switch it on in System Settings > Privacy & Security > Full Disk Access, then quit and reopen Terminal. |
+| `users add` or `users remove`: `... needs Full Disk Access` | Run inside the tmux session (it never has it), or in a terminal app without it | Leave tmux (Ctrl-b then d) and run it again from the plain shell. Over SSH, that needs **Allow full disk access for remote users** (System Settings > General > Sharing > Remote Login (i)). See [multi-user.md](multi-user.md). |
 | `doctor`: `fail GPU memory limit is ... MB, plan says ...` | Not applied yet (it's re-applied at startup) | Run the `sudo sysctl ...` command shown, or restart. |
 | `doctor`: `fail <tool> is missing — run: brew install <tool>` | A developer tool didn't install | Run the command shown, or `mac-ai-server install --only homebrew`. |
 | `doctor`: `fail Tailscale is not signed in` | Sign-in not finished, or the key expired | Run the command shown and open the link. Then disable key expiry ([remote-access.md](remote-access.md)). |
