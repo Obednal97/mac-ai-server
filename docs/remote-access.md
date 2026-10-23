@@ -94,6 +94,16 @@ The installer also:
 - turns off root login over SSH;
 - adds keep-alives, so idle connections don't drop.
 
+## Several sessions at once (Claude Squad)
+
+`cs` opens [Claude Squad](https://github.com/smtg-ai/claude-squad), a list of Claude Code sessions running side by side. Each one gets its own **git worktree** (a separate copy of the project on its own branch, so two sessions never edit the same files) and its own tmux session, so it keeps running after you disconnect. Because it all lives on this Mac, you see the same list from your laptop, your desktop or your phone: SSH in and run `cs`.
+
+- Run `cs` inside a project folder. Anywhere else, it lists the git projects in `~/projects` to pick from. New sessions start from that project; the list shows your sessions from every project.
+- In the list: **n** starts a session, **↵** opens it, **Ctrl-q** goes back to the list (the session keeps going), **D** deletes one, **c** checks out its branch, **p** pushes it, **q** closes the list (sessions keep running). **?** shows the rest.
+- Sessions run `claude --dangerously-skip-permissions`, so Claude doesn't stop to ask before each step. The first time you open a new session, Claude asks whether you trust its folder: pick **Yes**. To run something else: `cs -p '<command>'`.
+- Inside tmux, a session you open from the list has its own status bar saying **Ctrl-q** goes back; **Ctrl-b** still belongs to the outer `main` session.
+- `MAS_SQUAD=no` in `config.env` leaves it out. Claude Squad keeps its own settings and worktrees in `~/.claude-squad`.
+
 ## Screen Sharing
 
 To see the Mac's screen from another Mac:

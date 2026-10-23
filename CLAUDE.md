@@ -108,6 +108,7 @@ Disk space: 316 GB free, about 42 GB needed. That's enough.
   - `claude-local`: Claude Code on the local model;
   - `chat`: a quick chat with the local model;
   - a session that keeps running after they disconnect;
+  - `cs` (Claude Squad): several Claude Code sessions side by side, each on its own copy of the project;
   - Remote Control, so they can use the Mac from the Claude phone app;
   - a welcome screen.
 - **Agent tools:** web search, web page reading and a hidden browser, so Claude can look things up even on the local model.
@@ -482,7 +483,7 @@ Some of these need the admin password. Without agent mode, Claude's shell can't 
 | `mac-ai-server models remove <tag>` | no | Deletes a downloaded model (not the one in use). |
 | `mac-ai-server tools` / `tools add <name>` / `tools remove <name>` | add: yes | Developer tools. `remove` only takes it off the list and says so; it doesn't uninstall it (`brew uninstall <name>` does). |
 | `mac-ai-server permissions` | no | The System Settings walk-through again. |
-| `mac-ai-server install --plan` / `install --only <module>` | `--plan`: no; others: yes | Re-run all or part of the installer. Module names: power, remote-access, homebrew, tailscale, ollama, models, claude, agent-tools, statusline, netsetup, tuning, agent-mode, permissions. |
+| `mac-ai-server install --plan` / `install --only <module>` | `--plan`: no; others: yes | Re-run all or part of the installer. Module names: power, remote-access, homebrew, tailscale, ollama, models, claude, agent-tools, squad, statusline, netsetup, tuning, agent-mode, permissions. |
 | `mac-ai-server handover dry-run` / `phase1` / `phase2` / `local` | yes | Handover (see `docs/handover.md`). **Never run `phase2` unless the user explicitly asked for it.** |
 
 If the user's shell doesn't find `mac-ai-server`, use `~/mac-ai-server/mac-ai-server`, or open a new Terminal window.

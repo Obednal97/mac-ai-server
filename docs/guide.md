@@ -67,6 +67,7 @@ Each question has a sensible default. Say "use the defaults" if you don't mind.
 | Tailscale | yes | Reach the Mac from anywhere, privately. See [remote-access.md](remote-access.md). |
 | Agent tools and plugins | yes | Web search, a web page reader and a hidden browser for Claude, plus plugins. See [agent-tools.md](agent-tools.md). |
 | Status line | yes | A bar at the bottom of Claude Code with cost, context, git and account. See [statusline.md](statusline.md). |
+| Claude Squad | yes | `cs`: several Claude Code sessions side by side, each on its own copy of the project. See [remote-access.md](remote-access.md#several-sessions-at-once-claude-squad). |
 | Developer tools | node, pnpm, uv, git, gh, jq, ripgrep | Common tools for coding. Add or remove any. |
 | Agent mode | no | Claude stops asking before it acts, and admin commands need no password. Risky; see below. |
 | Handover support | no | Only if you're building the Mac for someone else. See [handover.md](handover.md). |
@@ -253,6 +254,7 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_SEARCH` | `duckduckgo` | `duckduckgo`, `searxng` or `none`. |
 | `MAS_SEARXNG_URL` | empty | Your SearXNG address, when `MAS_SEARCH=searxng`. |
 | `MAS_STATUSLINE` | `yes` | Install the Claude Code status line. |
+| `MAS_SQUAD` | `yes` | Install Claude Squad and the `cs` command. |
 | `MAS_DEV_TOOLS` | `"node pnpm uv git gh jq ripgrep"` | Homebrew developer tools. Empty means none. |
 | `MAS_AGENT_MODE` | `no` | Passwordless admin plus no permission prompts. |
 | `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `main`. |
