@@ -1,6 +1,6 @@
 # Remote access
 
-There are four ways to use your AI Mac without sitting in front of it:
+There are five ways to use your AI Mac without sitting in front of it:
 
 | Way | Good for | Needs |
 |---|---|---|
@@ -8,6 +8,7 @@ There are four ways to use your AI Mac without sitting in front of it:
 | **SSH** | A terminal on the Mac from another computer | Your account name and password (or an SSH key) |
 | **Screen Sharing** | Seeing and clicking on the Mac's screen | Another Mac, or a VNC app |
 | **Tailscale** | Making SSH and Screen Sharing work from anywhere | A free Tailscale account |
+| **The local model** | Apps on other computers at home using the Mac's model | `MAS_OLLAMA_LAN=yes` (off by default) |
 
 The installer switches on SSH, Screen Sharing and the macOS firewall on every Mac. Tailscale is on by default, and you can skip it.
 
@@ -119,3 +120,36 @@ The installer starts Screen Sharing and lets your account connect, but **on macO
 - **`doctor` can't tell the two apart,** because the refusal only comes after a login. Once Screen Sharing is on and you're allowed in, it shows an `info` line, not `ok`.
 
 Screen Sharing is how you click the macOS prompts on a Mac with no monitor, such as the Location "Allow" box.
+
+## The local model from other computers
+
+Ollama, the program that runs the local model, only answers this Mac by default. To let other computers on your home network use the model, such as a home server, Open WebUI, Home Assistant or your own scripts:
+
+1. Add `MAS_OLLAMA_LAN=yes` to `~/.mac-ai-server/config.env`.
+2. Run `mac-ai-server install --only ollama` (admin password). It makes Ollama listen on the network, lets it through the macOS firewall, and prints the address to use, e.g. `http://192.168.1.20:11434`.
+3. **Give the Mac a fixed address** in your router's settings (often called a DHCP reservation), so the address doesn't change. `http://ai-mini.local:11434` also works from Macs and most desktops, but often not from Linux servers or containers.
+
+Check it from the other computer: `curl http://<address>:11434/api/tags` lists the models. Then point the app at it:
+
+| The app uses | Address | Also set |
+|---|---|---|
+| Ollama (Open WebUI, Home Assistant, n8n) | `http://<address>:11434` | |
+| OpenAI's API | `http://<address>:11434/v1` | Any API key, e.g. `ollama` |
+| Anthropic's API (Claude Code) | `http://<address>:11434` | See below |
+
+Use the model's exact name, e.g. `qwen3.8:27b-nvfp4`. Run `ollama list` on the Mac to see them.
+
+Claude Code on another computer, set up the way `claude-local` does it (`bin/claude-local` has the full list):
+
+```bash
+export ANTHROPIC_BASE_URL=http://<address>:11434 ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY=""
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536   # the Mac's context length (the Context column in models.md)
+claude --model qwen3.8:27b-nvfp4
+```
+
+Things to know:
+- **There's no password.** Anything on your home network can use the model, and can also download or delete models through the same connection. Leave it off if guests or devices you don't trust share the network. Your Tailscale devices, and people you shared the Mac with, can reach it too (`http://ai-mini:11434`). WireGuard users can't: their tunnel only allows SSH and Screen Sharing.
+- **One request at a time.** Other computers and `claude-local` take turns. The model's prompt cache holds one conversation, so when two take turns, each re-reads its whole prompt, which is slow for long ones.
+- **Keep to the same model and settings.** Asking for another model swaps out the one in memory, because only one big model fits. Setting a context length (`num_ctx`) in a request reloads the model. Both take a while.
+- **The firewall allows one exact Ollama version.** The installer allows each new one. If you upgrade Ollama yourself (`brew upgrade`), run `mac-ai-server install --only ollama` again; `doctor` tells you when it's needed.
+- **To turn it off,** set `MAS_OLLAMA_LAN=no` and run `mac-ai-server install --only ollama`. Ollama goes back to answering this Mac only.

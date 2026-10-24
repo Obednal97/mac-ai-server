@@ -81,6 +81,16 @@ Each entry says what we found and what we decided.
 - **Found:** `launchctl bootout` is asynchronous. An immediate `bootstrap` failed with error 5 and left Ollama stopped.
 - **Decision:** `mas_reload_agent` waits until the old job is gone, then retries `bootstrap`.
 
+### Other computers using the model (`MAS_OLLAMA_LAN`)
+- **Found:**
+  - Ollama has no password, and the same API can download and delete models.
+  - Homebrew's Ollama isn't signed by a developer, so the macOS firewall blocks incoming connections to it until it's listed. Each upgrade is a new file that needs listing again.
+  - `socketfilterfw --getappblocked` says "permitted" even for files the firewall has never seen.
+- **Decision:**
+  - Off by default: Ollama listens on `127.0.0.1` only. `MAS_OLLAMA_LAN=yes` sets `OLLAMA_HOST=0.0.0.0:11434` in `local.ollama` and lists the real binary behind Homebrew's link as allowed.
+  - `doctor` reads `--listapps` instead, so it notices a version that isn't listed yet.
+  - WireGuard's pf anchor already keeps tunnel users to SSH and Screen Sharing, so they can't reach it.
+
 ### MLX-LM: dropped
 - **Found:** `uv` picked Python 3.15 for `mlx-lm`. `sentencepiece` has no wheel for it, and building it failed without cmake. The old kit pinned Python 3.12.
 - **Decision:** dropped altogether. Ollama 0.19 and later already run models on Apple's MLX engine, so a separate MLX install adds nothing for this use.

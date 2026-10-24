@@ -320,6 +320,7 @@ Then run `./install.sh --plan` again. Check that the name, the mode and the mode
 | `MAS_SEARCH` / `MAS_SEARXNG_URL` | `duckduckgo` / empty | Which web search tool to install (see 4e). |
 | `MAS_WIREGUARD=yes`, `MAS_WG_ENDPOINT`, `MAS_WG_PORT` | `no`, empty, `51820` | WireGuard for people who won't create any account (`users add <name> --wireguard`). Needs a UDP port forward on the router and a public name for the home connection. See `docs/multi-user.md`. |
 | `MAS_PLUGINS` | `"superpowers code-review frontend-design playwright"` | Which plugins to install. |
+| `MAS_OLLAMA_LAN=yes` | `no` | Lets other computers on the home network use the local model, e.g. a home server or Open WebUI. It has no password: anything on the network can use it, and download or delete models. Apply it with `mac-ai-server install --only ollama`. See `docs/remote-access.md`. |
 
 ## Step 5: run the install
 

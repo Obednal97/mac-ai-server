@@ -44,6 +44,7 @@ If you want to report a problem, `mac-ai-server doctor --report` gives you the c
 | The phone app doesn't show the Mac | Remote Control isn't confirmed yet | Run `ai-motd` and do what its last line says. See [remote-access.md](remote-access.md). |
 | `ai-motd`: `Remote Control is waiting for one confirmation` | The `[y/N]` prompt in the hidden window | `tmux attach -t main:remote`, type `y`, then Ctrl-b d. |
 | `doctor`: `fail Ollama isn't answering on localhost:11434` | Ollama stopped | `launchctl kickstart -k gui/$(id -u)/local.ollama`. If it persists, check `/opt/homebrew/var/log/ollama.log`, then `mac-ai-server install --only ollama`. |
+| Another computer can't reach the local model | `MAS_OLLAMA_LAN` isn't `yes`, the firewall doesn't allow this Ollama version, or the Mac's address changed | `mac-ai-server doctor` shows which, with the fix. Test from the other computer with `curl http://<address>:11434/api/tags`, and give the Mac a fixed address in your router. See [remote-access.md](remote-access.md#the-local-model-from-other-computers). |
 | `doctor`: `fail Model ... is not downloaded` | The download didn't finish | `mac-ai-server install --only models`. |
 | `claude-local` is very slow on the first answer | The model is loading into memory | Wait about 10 seconds. It stays loaded for 24 hours on a desktop and 30 minutes on a daily laptop. |
 | `claude-local` gives poor answers | Local models are much weaker than Claude's | Use `claude` for important work, try plan mode, or pick a bigger model if your Mac has room ([models.md](models.md)). |
