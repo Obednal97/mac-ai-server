@@ -104,6 +104,8 @@ chat qwen3.6:35b-a3b-nvfp4
 CLAUDE_LOCAL_MODEL=qwen3.6:35b-a3b-nvfp4 claude-local
 ```
 
+Inside `claude-local`, `/model` lists the downloaded models as well. A model you pick there with Enter becomes your own default for `claude-local` (other accounts keep theirs); its **Default** row goes back to the one set here.
+
 Only one large model fits in the GPU limit at a time. Ollama swaps them on demand, and the first answer after a swap takes a few seconds longer.
 
 **Updates never switch your model by themselves.** If a newer version of this repo recommends a different model, `mac-ai-server update` prints:

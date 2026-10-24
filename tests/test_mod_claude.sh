@@ -47,22 +47,70 @@ assert_ok "claude-local context" grep -qx 'export CLAUDE_CODE_MAX_CONTEXT_TOKENS
 assert_ok "claude-local base url" grep -qF 'ANTHROPIC_BASE_URL="http://localhost:11434"' "$BIN/claude-local"
 assert_ok "claude-local empty api key" grep -qx 'export ANTHROPIC_API_KEY=""' "$BIN/claude-local"
 assert_ok "claude-local token" grep -qF 'ANTHROPIC_AUTH_TOKEN="ollama"' "$BIN/claude-local"
-assert_ok "claude-local subagent" grep -q 'CLAUDE_CODE_SUBAGENT_MODEL="\$MODEL"' "$BIN/claude-local"
+assert_fails "claude-local subagents follow /model" grep -q 'CLAUDE_CODE_SUBAGENT_MODEL' "$BIN/claude-local"
 assert_ok "claude-local no traffic" grep -q 'DISABLE_NONESSENTIAL_TRAFFIC=1' "$BIN/claude-local"
-assert_ok "claude-local execs claude" grep -qx 'exec claude ${skip:+"$skip"} "\$@"' "$BIN/claude-local"
+assert_ok "claude-local always sends effort" grep -qx 'export CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1' "$BIN/claude-local"
+assert_fails "claude-local leaves effort to /effort" grep -q 'CLAUDE_CODE_EFFORT_LEVEL' "$BIN/claude-local"
+assert_ok "claude-local Default row is the planned model" grep -qF 'export ANTHROPIC_DEFAULT_MODEL="big:30b-x"' "$BIN/claude-local"
+assert_ok "claude-local runs claude" grep -qx 'claude ${skip:+"$skip"} --model "$MODEL" "${picker\[@\]}" "\$@"' "$BIN/claude-local"
 # claude-local skips permission prompts unless a mode is asked for (logged by a stand-in claude)
-CL="$T_TMP/cl"; mkdir -p "$CL"; printf '#!/bin/sh\necho "claude $*" >> "$FAKE_LOG"\n' > "$CL/claude"; chmod +x "$CL/claude"
+CL="$T_TMP/cl"; mkdir -p "$CL"
+cat > "$CL/claude" <<'SH'
+#!/bin/sh
+echo "claude $*" >> "$FAKE_LOG"
+# CL_SETTINGS=<json>: what the session leaves in the user settings (e.g. a /model pick); CL_RC: exit code
+[ -n "${CL_SETTINGS:-}" ] && printf '%s\n' "$CL_SETTINGS" > "$HOME/.claude/settings.json"
+exit "${CL_RC:-0}"
+SH
+chmod +x "$CL/claude"
 cl() { : > "$FAKE_LOG"; PATH="$CL:$SAFE_PATH" "$@" >/dev/null 2>&1; }
 cl "$BIN/claude-local" -c
-assert_logged '^claude --dangerously-skip-permissions -c$'
+assert_logged '^claude --dangerously-skip-permissions --model big:30b-x -c$'
 cl "$BIN/claude-local" mcp list
-assert_logged '^claude --dangerously-skip-permissions mcp list$'
+assert_logged '^claude --dangerously-skip-permissions --model big:30b-x mcp list$'
 cl "$BIN/claude-local" --permission-mode plan
-assert_logged '^claude --permission-mode plan$'
+assert_logged '^claude --model big:30b-x --permission-mode plan$'
 cl "$BIN/claude-local" --permission-mode=acceptEdits
-assert_logged '^claude --permission-mode=acceptEdits$'
+assert_logged '^claude --model big:30b-x --permission-mode=acceptEdits$'
 cl env CLAUDE_LOCAL_ASK=1 "$BIN/claude-local" -c
-assert_logged '^claude -c$'
+assert_logged '^claude --model big:30b-x -c$'
+# /model lists the downloaded models, and each starts at medium effort unless one was saved
+jget() {  # jget <file> <key>...: a value from a JSON file, empty when missing
+  /usr/bin/python3 -I -c 'import json, sys
+d = json.load(open(sys.argv[1]))
+for k in sys.argv[2:]:
+    d = d.get(k, "") if isinstance(d, dict) else ""
+print(d)' "$@"
+}
+CONFJ="$HOME/.claude/settings.json"; PICK="$HOME/.claude/claude-local-model"
+OLL=$'NAME ID SIZE MODIFIED\nbig:30b-x a 31 GB 1 day ago\nsmall:7b b 5 GB 1 day ago'
+mkdir -p "$HOME/.claude"; printf '{"model": "opus[1m]", "modelSettings": {"small:7b": {"effortLevel": "low"}}}\n' > "$CONFJ"
+cl env FAKE_OUT_ollama="$OLL" "$BIN/claude-local" -c
+assert_ok "picker lists the local models" grep -qF -- '--model big:30b-x --settings {"modelPicker": {"replaceBuiltInOptions": true, "options": [{"model": "big:30b-x", "description": "On this Mac"}, {"model": "small:7b", "description": "On this Mac"}]}} -c' "$FAKE_LOG"
+assert_eq "$(jget "$CONFJ" modelSettings big:30b-x effortLevel)" medium "new local model starts at medium"
+assert_eq "$(jget "$CONFJ" modelSettings small:7b effortLevel)" low "saved effort kept"
+# /model + Enter on a local model: kept for claude-local only, the normal claude model put back
+cl env FAKE_OUT_ollama="$OLL" CL_SETTINGS='{"model": "small:7b"}' "$BIN/claude-local"
+assert_eq "$(jget "$CONFJ" model)" "opus[1m]" "normal claude model put back"
+assert_eq "$(cat "$PICK" 2>/dev/null)" small:7b "local pick saved"
+cl env FAKE_OUT_ollama="$OLL" "$BIN/claude-local"
+assert_logged '^claude --dangerously-skip-permissions --model small:7b '
+cl env FAKE_OUT_ollama="$OLL" CLAUDE_LOCAL_MODEL=big:30b-x "$BIN/claude-local"
+assert_logged '^claude --dangerously-skip-permissions --model big:30b-x '
+cl "$BIN/claude-local"
+assert_logged '^claude --dangerously-skip-permissions --model big:30b-x$'   # pick no longer downloaded
+# the Default row (model removed): back to the planned model
+cl env FAKE_OUT_ollama="$OLL" CL_SETTINGS='{}' "$BIN/claude-local"
+assert_eq "$(jget "$CONFJ" model)" "opus[1m]" "normal model put back after Default"
+assert_fails "local pick cleared by Default" test -e "$PICK"
+# a local model left behind by a killed session is removed; another session's choice is kept
+printf '{"model": "small:7b"}\n' > "$CONFJ"
+cl env FAKE_OUT_ollama="$OLL" "$BIN/claude-local"
+assert_eq "$(jget "$CONFJ" model)" "" "leftover local model removed"
+cl env FAKE_OUT_ollama="$OLL" CL_SETTINGS='{"model": "sonnet"}' "$BIN/claude-local"
+assert_eq "$(jget "$CONFJ" model)" sonnet "a normal session's choice kept"
+PATH="$CL:$SAFE_PATH" CL_RC=3 "$BIN/claude-local" >/dev/null 2>&1
+assert_eq "$?" 3 "exit code passes through"
 assert_fails "claude-local no placeholders" grep -q '__[A-Z]*__' "$BIN/claude-local"
 assert_ok "chat default model" grep -qF '${1:-big:30b-x}' "$BIN/chat"
 assert_fails "chat no placeholders" grep -q '__[A-Z]*__' "$BIN/chat"

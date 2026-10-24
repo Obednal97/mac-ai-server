@@ -222,6 +222,8 @@ Both `claude` and `claude-local` share projects, memory and history. In a projec
 
 **`claude-local` skips permission prompts** (it starts with `--dangerously-skip-permissions`). Auto mode would ask the local model to vet every command, which is slow and times out while the model is busy, and the default mode asks about everything. To be asked first, give a mode yourself (`claude-local --permission-mode default`) or set `CLAUDE_LOCAL_ASK=1`.
 
+**Pick the model and effort inside `claude-local`.** `/model` lists the models downloaded on this Mac; **Default** is the one the installer set up. `/effort` sets how long the model thinks before it answers, and each local model starts at medium. Qwen 3.8 has low, medium and xhigh (high and max act like medium; xhigh thinks several times longer); models without effort levels ignore it. Enter saves your choice for later `claude-local` sessions, and `s` keeps it to this one. Your normal `claude` keeps its own model. Switching models mid-session loads the other model and re-reads the whole conversation, so it's quickest to pick before you start.
+
 **From your phone:** open the Claude app (or claude.ai/code in a browser) and start a Claude Code session on this Mac. More in [remote-access.md](remote-access.md).
 
 **From another computer:** `ssh admin@ai-mini.local` on your home network, or `ssh admin@ai-mini` with Tailscale. Use your own account name (before the `@`) and machine name. You'll see a welcome screen with the commands and the live status.
