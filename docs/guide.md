@@ -228,6 +228,8 @@ Both `claude` and `claude-local` share projects, memory and history. In a projec
 
 **From another computer:** `ssh admin@ai-mini.local` on your home network, or `ssh admin@ai-mini` with Tailscale. Use your own account name (before the `@`) and machine name. You'll see a welcome screen with the commands and the live status.
 
+**The model from another computer,** such as a home server or Open WebUI: set `MAS_OLLAMA_LAN=yes`. See [remote-access.md](remote-access.md#the-local-model-from-other-computers).
+
 **The quick helper model.** Claude offers it at the end. You can also get it later with `mac-ai-server models add-fast`, then `chat <its name>` or `CLAUDE_LOCAL_MODEL=<its name> claude-local`.
 
 ## Later
@@ -250,6 +252,7 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_HOSTNAME` | `ai-mini` | Machine name. |
 | `MAS_MODE` | `auto` | `desktop`, `laptop-daily` or `laptop-server`. `auto` means desktop on a Mac mini or Studio, and asks on a MacBook. |
 | `MAS_MODEL` | empty | Empty follows the recommendation. Otherwise a model tag. |
+| `MAS_OLLAMA_LAN` | `no` | `yes` lets other computers on your home network use the local model. It has no password. See [remote-access.md](remote-access.md#the-local-model-from-other-computers). |
 | `MAS_TAILSCALE` | `yes` | Install and sign in to Tailscale. |
 | `MAS_AGENT_TOOLS` | `yes` | Browser, web fetch, web search and plugins. |
 | `MAS_PLUGINS` | `"superpowers code-review frontend-design playwright"` | Plugins to install. |

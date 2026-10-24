@@ -13,6 +13,8 @@
     <key>OLLAMA_KEEP_ALIVE</key><string>__KEEP_ALIVE__</string>
     <!-- Context length for this Mac's memory tier (enough for coding agents) -->
     <key>OLLAMA_CONTEXT_LENGTH</key><string>__CONTEXT__</string>
+    <!-- This Mac only, or other computers on the home network too (MAS_OLLAMA_LAN) -->
+    <key>OLLAMA_HOST</key><string>__HOST__</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

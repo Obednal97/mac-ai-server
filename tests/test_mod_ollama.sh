@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 t_setup
 trap t_teardown EXIT
-export MAS_BREW_PREFIX="$T_TMP/nobrew-prefix" MAS_BREW_BIN="$TESTS_DIR/fakes/brew" MAS_OLLAMA_WAIT=3 MAS_OLLAMA_POLL=1
+export MAS_BREW_PREFIX="$T_TMP/nobrew-prefix" MAS_BREW_BIN="$TESTS_DIR/fakes/brew" MAS_OLLAMA_WAIT=3 MAS_OLLAMA_POLL=1 MAS_FW=socketfilterfw
 BREW="$REPO_DIR/modules/30-homebrew.sh"
 OLL="$REPO_DIR/modules/40-ollama.sh"
 MOD="$REPO_DIR/modules/50-models.sh"
@@ -65,6 +65,34 @@ assert_ok "laptop-daily keep alive 30m" grep -q '<string>30m</string>' "$PLIST"
 assert_eq "$(grep -c '24h' "$PLIST")" 0 "laptop-daily not 24h"
 runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=laptop-server FAKE_OUT_curl="$VER"
 assert_ok "laptop-server keeps 24h" grep -q '<string>24h</string>' "$PLIST"
+# this Mac only, unless MAS_OLLAMA_LAN=yes
+assert_ok "this Mac only by default" grep -q '<key>OLLAMA_HOST</key><string>127.0.0.1:11434</string>' "$PLIST"
+assert_not_logged 'socketfilterfw'
+# home network: listens on every address and lets the real binary (behind Homebrew's link) through the firewall
+CELLAR="$MAS_BREW_PREFIX/Cellar/ollama/9.9/libexec"; mkdir -p "$CELLAR" "$MAS_BREW_PREFIX/opt/ollama/bin"
+: > "$CELLAR/ollama"; ln -s "$CELLAR/ollama" "$MAS_BREW_PREFIX/opt/ollama/bin/ollama"
+REAL="$(cd "$CELLAR" && pwd -P)/ollama"
+fwlist() { printf '1 : %s \n             (%s incoming connections)' "$1" "$2"; }
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_ipconfig=192.168.1.20
+assert_eq "$?" 0 "home network run ok"
+assert_ok "listens on the home network" grep -q '<key>OLLAMA_HOST</key><string>0.0.0.0:11434</string>' "$PLIST"
+assert_logged "^sudo socketfilterfw --add $REAL\$"
+assert_logged "^sudo socketfilterfw --unblockapp $REAL\$"
+assert_ok "prints the address to use" has 'http://192.168.1.20:11434'
+assert_ok "says there's no password" has 'no password'
+# already allowed: no admin step
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Allow)"
+assert_not_logged '^sudo socketfilterfw'
+# listed but blocked: unblocked
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Block)"
+assert_logged "^sudo socketfilterfw --unblockapp $REAL\$"
+# no Ollama binary to allow: warns, Ollama itself still runs
+rm "$MAS_BREW_PREFIX/opt/ollama/bin/ollama"
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER"
+assert_eq "$?" 0 "run still ok without the binary"
+assert_ok "warns about the firewall" has "Couldn't let Ollama through the firewall"
+assert_not_logged '^sudo socketfilterfw'
+ln -s "$CELLAR/ollama" "$MAS_BREW_PREFIX/opt/ollama/bin/ollama"
 # brew install failure
 runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop FAKE_RC=1 FAKE_OUT_curl="$VER"
 assert_eq "$?" 1 "run fails when brew install fails"
@@ -84,6 +112,26 @@ assert_eq "$?" 0 "ollama check ok"
 runfn "$OLL" mod_check MAS_CONTEXT=32768 FAKE_OUT_curl="" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$?" 1 "ollama check fails when down"
 assert_ok "check names fix" has "fail .* — "
+# home network checks
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Allow)"
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Allow)" FAKE_OUT_ipconfig=192.168.1.20
+assert_eq "$?" 0 "home network check ok"
+assert_ok "ok line has the address" has '^ok .*http://192.168.1.20:11434'
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Allow)" FAKE_OUT_scutil=ai-mini
+assert_ok "no address: the .local name" has '^ok .*http://ai-mini.local:11434'
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "${REAL%/9.9/*}/9.8/libexec/ollama" Allow)"
+assert_eq "$?" 1 "check fails when only an older Ollama is allowed"
+assert_ok "firewall fail names the fix" has "fail the firewall .* — run: mac-ai-server install --only ollama"
+runfn "$OLL" mod_check MAS_CONTEXT=32768 FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 1 "check fails when open but MAS_OLLAMA_LAN isn't yes"
+assert_ok "open fail names the fix" has "fail Ollama is open to the home network.* — run: mac-ai-server install --only ollama"
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop FAKE_OUT_curl="$VER"
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 1 "check fails when MAS_OLLAMA_LAN=yes but the plist is this Mac only"
+assert_ok "not-open fail names the fix" has "fail Ollama isn't open to the home network yet.* — run: mac-ai-server install --only ollama"
+sed -i '' '/OLLAMA_HOST/d' "$PLIST"
+runfn "$OLL" mod_check MAS_CONTEXT=32768 FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 0 "an older plist without OLLAMA_HOST counts as this Mac only"
 
 # --- models
 runfn "$MOD" mod_run MAS_PRIMARY=big:30b MAS_PRIMARY_GB=30 MAS_FAST=small:9b FAKE_OUT_df="$(DFROW 10)" FAKE_OUT_ollama="NAME ID SIZE MODIFIED"
