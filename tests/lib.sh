@@ -10,6 +10,7 @@ t_setup() {
   T_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mas-test.XXXXXX")"
   export HOME="$T_TMP/home"
   mkdir -p "$HOME"
+  unset CLAUDE_CONFIG_DIR   # would point Claude Code (and claude-local) at a real config past the throwaway HOME
   export FAKE_LOG="$T_TMP/fake.log"
   : > "$FAKE_LOG"
   # Only the fakes and the OS's own directories: never /opt/homebrew, /usr/local or ~/.local/bin,

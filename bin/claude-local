@@ -3,20 +3,70 @@
 #   claude-local                       start with the default local model
 #   CLAUDE_LOCAL_MODEL=other claude-local
 #   claude-local --permission-mode default   ask before acting (CLAUDE_LOCAL_ASK=1 does the same)
-# Your normal `claude` command and login are untouched.
+# In a session, /model lists the models on this Mac and /effort sets how long the model thinks (each
+# local model starts at medium). Enter saves the choice for later claude-local sessions, s keeps it to
+# this session. Your normal `claude` command, its model and its login are untouched.
+export PATH="$PATH:/opt/homebrew/bin"   # for ollama
 MODEL="${CLAUDE_LOCAL_MODEL:-__MODEL__}"
+CONF="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+PICKED="$CONF/claude-local-model"   # the model last saved with /model in claude-local
+MODELS="$(ollama list 2>/dev/null | awk 'NR>1{print $1}')"
+is_local() { [ -n "$1" ] && printf '%s\n' "$MODELS" | grep -Fxq -- "$1"; }
+if [ -z "$CLAUDE_LOCAL_MODEL" ] && is_local "$(cat "$PICKED" 2>/dev/null)"; then MODEL="$(cat "$PICKED")"; fi
+
+# settings <picker|get|put|seed> [args]: the /model rows, or read and write Claude Code's user settings.
+settings() {
+  /usr/bin/python3 -I - "$CONF/settings.json" "$@" <<'PY'
+import json, os, sys, tempfile
+path, cmd, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+if cmd == "picker":  # a --settings value: one /model row per local model and nothing else
+    rows = [{"model": m, "description": "On this Mac"} for m in args]
+    print(json.dumps({"modelPicker": {"replaceBuiltInOptions": True, "options": rows}}))
+    sys.exit(0)
+try:
+    d = json.load(open(path))
+except FileNotFoundError:
+    d = {}
+except Exception:
+    sys.exit(1)  # unreadable settings: leave them alone
+if cmd == "get":
+    print(d.get("model", ""))
+    sys.exit(0)
+if cmd == "put":  # set the top-level model, or remove it when empty
+    if args[0]:
+        d["model"] = args[0]
+    else:
+        d.pop("model", None)
+elif cmd == "seed":  # local models without a saved effort start at medium
+    saved = d.setdefault("modelSettings", {})
+    new = [m for m in args if "effortLevel" not in saved.get(m, {})]
+    if not new:
+        sys.exit(0)
+    for m in new:
+        saved.setdefault(m, {})["effortLevel"] = "medium"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as f:
+    json.dump(d, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
 export ANTHROPIC_BASE_URL="http://localhost:11434"
 export ANTHROPIC_AUTH_TOKEN="ollama"
 export ANTHROPIC_API_KEY=""
 unset CLAUDE_CODE_OAUTH_TOKEN   # a setup-token login would take precedence over the local server
-export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_MODEL="__MODEL__"   # the Default row in /model
 export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
-export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
 # Must match OLLAMA_CONTEXT_LENGTH in ~/Library/LaunchAgents/local.ollama.plist (filled in by the installer)
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS=__CONTEXT__
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# Claude Code only sends an effort level for model IDs it knows, so force it. Ollama passes on the
+# levels a model has (Qwen 3.8: low, medium, xhigh) and uses the model's own default for any other.
+export CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1
 # No permission prompts by default. Auto mode would ask the local model to vet every command, which
 # is slow and times out while the model is busy, and the default mode asks about everything.
 # A mode given on the command line, or CLAUDE_LOCAL_ASK=1, wins.
@@ -25,4 +75,25 @@ skip=--dangerously-skip-permissions
 for a in "$@"; do
   case "$a" in --permission-mode|--permission-mode=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions) skip="" ;; esac
 done
-exec claude ${skip:+"$skip"} "$@"
+
+before="$(settings get)"
+if is_local "$before"; then before=""; settings put ""; fi   # left behind by a session that was killed
+settings seed $MODELS
+picker=()
+[ -n "$MODELS" ] && picker=(--settings "$(settings picker $MODELS)")
+# /model + Enter saves to the model setting the normal claude command reads too. Keep a local pick for
+# claude-local only, and put the normal one back.
+restore() {
+  local after; after="$(settings get)"
+  [ "$after" = "$before" ] && return
+  if is_local "$after"; then printf '%s\n' "$after" > "$PICKED"
+  elif [ -z "$after" ] || [ "$after" = default ]; then rm -f "$PICKED"
+  else return   # a normal claude session changed it meanwhile: keep that
+  fi
+  settings put "$before"
+}
+trap restore EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+# --model rather than ANTHROPIC_MODEL, which would make /model say new sessions ignore the pick.
+claude ${skip:+"$skip"} --model "$MODEL" "${picker[@]}" "$@"
