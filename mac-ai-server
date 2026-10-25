@@ -328,7 +328,7 @@ Once you're in:
   claude          Claude Code. Log in with your own Claude account the first time.
   claude-local    Claude Code on this Mac's own AI model (private, free, slower)
   chat            a quick chat with the local model
-  tmux new -As main   keeps your work running when you disconnect (Ctrl-b d to leave it)
+  tmux -L ssh new -As work   keeps your work running when you disconnect (Ctrl-b d to leave it)
 
 Your files, projects and Claude login are private to you. The AI models are shared.
 CARD

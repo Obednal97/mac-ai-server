@@ -30,6 +30,13 @@ Each entry says what we found and what we decided.
   - The tmux session `main` is started at login *inside the desktop session*, by a LaunchAgent (`local.ai-tmux`). Anything run inside it can read the login; this was tested.
   - SSH logins restart it the same way if it's missing.
 
+### Full Disk Access and the tmux sessions
+- **Found:** macOS charges a file access to the app that started the process. In `main` that's tmux, which has no Full Disk Access, so when a Claude Code session touches a protected folder macOS shows an approval dialog on the Mac's screen. With nobody there, the file call waits forever and the session freezes: no CPU, and Esc, Ctrl-C and `kill` (without `-9`) do nothing. `spindump` shows it in `__WAITING_ON_APPROVAL_FROM_SANDBOXD__`. SSH logins have Full Disk Access (Remote Login's "Allow full disk access for remote users"), and so does a tmux server started from one.
+- **Decision:**
+  - SSH logins attach to `work` on a tmux server of its own (`tmux -L ssh`), started from the SSH login. The keychain is unlocked there too: the SSH login unlocks it before attaching.
+  - `main` stays in the desktop session for Remote Control, which needs the keychain after a restart with nobody logged in over SSH.
+  - Granting tmux Full Disk Access in System Settings also works, but needs the screen, and Homebrew's tmux is ad-hoc signed, so every upgrade loses it. The privacy database can't be edited from the command line, even as root with Full Disk Access.
+
 ### Remote Control's double trust prompt
 - **Found:** Remote Control needs the folder trusted twice:
   1. once in `claude`;

@@ -276,7 +276,8 @@ assert_not_logged '^tmux new'   # no terminal (scp, ssh host cmd)
 env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" TERM=xterm-ghostty SSH_CONNECTION="1 2 3 4" \
   script -q /dev/null /bin/zsh -fc "$attach
 echo TERM=\$TERM >> \$FAKE_LOG" > /dev/null 2>&1 < /dev/null
-assert_logged '^tmux new -As main -c '
+assert_logged '^tmux -L ssh new -As work -c '
+assert_not_logged ' main'   # not the desktop's session: no Full Disk Access there
 assert_logged '^TERM=xterm-256color$'
 : > "$FAKE_LOG"
 env -i HOME="$HOME" PATH="$TM:$SAFE_PATH" FAKE_LOG="$FAKE_LOG" SSH_CONNECTION="1 2 3 4" LC_NOTMUX=1 \
@@ -298,6 +299,15 @@ runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_ok "check notices the missing block" has "fail SSH logins don't go straight into tmux"
 runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "added back"
+# an older block that attaches to `main` is flagged, then replaced (once, last, the rest kept)
+sed -i '' 's/tmux -L ssh new -As work/tmux new -As main/' "$HOME/.zprofile"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "check notices the old attach block" has "fail SSH logins go into the desktop's tmux session"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "old block replaced once"
+assert_fails "old attach line gone" grep -q 'tmux new -As main' "$HOME/.zprofile"
+assert_eq "$(tail -1 "$HOME/.zprofile")" "# mac-ai-server: tmux attach end" "new block is last"
+assert_ok "rest kept after the swap" grep -qx 'export KEEP=1' "$HOME/.zprofile"
 # a setup-token file counts as logged in
 rm -f "$HOME/.claude/.credentials.json"; mkdir -p "$HOME/.mac-ai-server"; echo tok > "$HOME/.mac-ai-server/claude-token"
 runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1
