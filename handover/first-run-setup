@@ -509,7 +509,7 @@ Connect from anywhere (Tailscale must be running on your device):
 On your home network you can also use $NAME.local
 
 Keep work running after you disconnect (tmux):
-  tmux new -As main         start a session, or reattach to it
+  tmux -L ssh new -As work  start a session, or reattach to it
   Ctrl-b then d             detach (everything keeps running)
 
 AI coding (run inside tmux):

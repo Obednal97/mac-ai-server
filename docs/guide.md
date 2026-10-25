@@ -215,7 +215,7 @@ Open a **new** Terminal window (so it finds the new commands) and try:
 | `claude-local` | The same Claude Code on your Mac's own model. Private, offline, slower, less capable. It doesn't ask permission before it acts (see below). |
 | `chat` | A quick chat with the local model. Type `/bye` to leave. |
 | `chat <model>` | Chat with another downloaded model, e.g. the quick helper. |
-| `tmux new -As main` | A session that keeps running when you close the window or disconnect. Ctrl-b then d leaves it running. SSH logins open it by themselves ([remote-access.md](remote-access.md)). |
+| `tmux -L ssh new -As work` | A session that keeps running when you close the window or disconnect. Ctrl-b then d leaves it running. SSH logins open it by themselves ([remote-access.md](remote-access.md)). |
 | `mac-ai-server doctor` | The checklist, any time. |
 
 Both `claude` and `claude-local` share projects, memory and history. In a project folder, run either one with `--continue` to pick up where the other left off.

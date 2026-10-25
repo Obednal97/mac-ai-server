@@ -26,12 +26,12 @@ ${SQUAD}  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update ·
   ${d}Both claude commands share projects, memory and history.${r}
   ${d}Switch any time: run either one with${r} --continue ${d}in a project folder.${r}
 
-  ${c}tmux new -As main${r}   keep work running after you disconnect ${d}(Ctrl-b d to detach)${r}
+  ${c}tmux -L ssh new -As work${r}   keep work running after you disconnect ${d}(Ctrl-b d to detach)${r}
 EOF
 
 # Context-sensitive hints
-if tmux has-session 2>/dev/null; then
-  printf '  %s↳ tmux is running: %s%s\n' "$g" "$(tmux ls -F '#S' 2>/dev/null | paste -sd, -)" "$r"
+if tmux -L ssh has-session 2>/dev/null; then
+  printf '  %s↳ tmux is running: %s%s\n' "$g" "$(tmux -L ssh ls -F '#S' 2>/dev/null | paste -sd, -)" "$r"
 fi
 if [ -n "$MODEL" ]; then
   if [ -n "$LOADED" ]; then STATUS="$LOADED (loaded, ready)"; else STATUS="$MODEL (loads on first use, ~10s)"; fi

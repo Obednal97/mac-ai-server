@@ -71,14 +71,15 @@ You'll see the **welcome screen**:
   claude-local    Claude Code on this Mac's model (private, offline, slower)
   chat            quick chat with the local model
 
-  tmux new -As main   keep work running after you disconnect (Ctrl-b d to detach)
+  tmux -L ssh new -As work   keep work running after you disconnect (Ctrl-b d to detach)
 ```
 
-**SSH logins go straight into tmux.** After the welcome screen, every SSH login with a terminal attaches to the `main` session (a block at the end of `~/.zprofile`). If the connection drops, everything keeps running, and the next login puts you back where you were.
-- **Ctrl-b** then **d** leaves the session running and returns to a plain shell; `exit` there disconnects. `tmux new -As main` goes back in.
+**SSH logins go straight into tmux.** After the welcome screen, every SSH login with a terminal attaches to the `work` session (a block at the end of `~/.zprofile`). It runs on its own tmux server, `ssh`, started from your SSH login rather than the desktop, because SSH logins have Full Disk Access and the desktop's `main` session doesn't: there, anything that needs it (a Claude Code session reading a protected folder, say) waits forever for an approval dialog on a screen nobody is looking at. `main` keeps Remote Control. If the connection drops, everything keeps running, and the next login puts you back where you were.
+- **Ctrl-b** then **d** leaves the session running and returns to a plain shell; `exit` there disconnects. `tmux -L ssh new -As work` goes back in.
 - The status bar along the bottom lists the shortcuts (all start with **Ctrl-b**): **d** leave, **c** new window, **n**/**p** next and previous window, **w** pick from a list, **[** scroll back (**q** stops), **?** every key. On a narrow window it shows only the first and last. The mouse wheel scrolls too.
 - It's skipped while the first-run assistant is unfinished, for logins without a terminal (`scp`, `ssh host <command>`, editors' remote connections), and when you connect with `LC_NOTMUX=1 ssh <user>@<name>` (a Mac's `ssh` passes `LC_*` variables on by default).
-- It never lands in the Remote Control window: if `remote` was the last one shown, it switches to the first window.
+- It never lands in the Remote Control window: that's in `main`, a different tmux server.
+- After a restart, the first SSH login starts the `work` session again (fresh: what ran in it before the restart is gone).
 - To turn it off: `MAS_TMUX_ATTACH=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`.
 
 This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. macOS keeps the keychain's locked or unlocked state **per login session**: auto-login unlocks it for the desktop (and tmux), but every SSH login starts with it locked. So each SSH login unlocks it for itself (a line in `~/.zprofile` runs `ai-keychain-unlock --login`):
@@ -103,7 +104,7 @@ The installer also:
 - In the list: **n** starts a `claude` session; **N** starts one with a prompt, and lets you choose `claude` or `claude-local` (←/→ on the Profile line, Tab to the prompt). **↵** opens a session, **Ctrl-q** goes back to the list (the session keeps going), **D** deletes one, **c** checks out its branch, **p** pushes it, **q** closes the list (sessions keep running). **?** shows the rest.
 - Sessions ask before they act, unless `MAS_SQUAD_SKIP_PERMISSIONS=yes` in `config.env` (then run `mac-ai-server install --only squad`): with it, `claude` and `claude-local` both work without stopping to ask. Agent mode makes `claude` skip the prompts either way. The installer keeps these two choices in `~/.claude-squad/config.json`; profiles you add there yourself are kept. To run something else once: `cs -p '<command>'`.
 - The first time you open a new session, Claude asks whether you trust its folder: pick **Yes**. If you gave it a prompt with **N**, the prompt waits in Claude's input box after that question: press Enter to send it.
-- Inside tmux, a session you open from the list has its own status bar saying **Ctrl-q** goes back; **Ctrl-b** still belongs to the outer `main` session.
+- Inside tmux, a session you open from the list has its own status bar saying **Ctrl-q** goes back; **Ctrl-b** still belongs to the outer tmux session.
 - `MAS_SQUAD=no` in `config.env` leaves it out. Claude Squad keeps its own settings and worktrees in `~/.claude-squad`.
 
 ## Screen Sharing

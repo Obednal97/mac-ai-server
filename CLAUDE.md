@@ -453,7 +453,7 @@ Go through every `fail`:
 > - **`claude-local`:** the same Claude Code, running on this Mac's own model. Private, works offline, slower and less capable.
 > - **`chat`:** a quick chat with the local model. Type `/bye` to leave.
 > - **From your phone:** open the Claude app (or claude.ai/code in a browser) and start a Claude Code session on this Mac. That's Remote Control.
-> - **From another computer:** `ssh <user>@<name>.local` at home, or `ssh <user>@<name>` with Tailscale. Then `tmux new -As main` keeps your work running after you disconnect.
+> - **From another computer:** `ssh <user>@<name>.local` at home, or `ssh <user>@<name>` with Tailscale. SSH logins go straight into a tmux session that keeps your work running after you disconnect (`tmux -L ssh new -As work` gets back in).
 > - **Check everything:** `mac-ai-server doctor`.
 
 Open new Terminal windows for these, because the current one doesn't know the new commands yet.
