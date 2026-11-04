@@ -173,6 +173,7 @@ run install --plan; assert_logged '^install.sh --plan'
 
 # --- users: multi-user accounts (fake sysadminctl/id/dscl; nothing real is created)
 UD="$T_TMP/users"; mkdir -p "$UD"
+export MAS_SYSROOT="$T_TMP/sysroot"   # shared copies (/usr/local/bin) go here, never the real one
 cat > "$FB/sysadminctl" <<'FAKE'
 #!/bin/bash
 echo "sysadminctl $*" >> "$FAKE_LOG"
@@ -235,6 +236,17 @@ assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_ssh'
 assert_logged '^dseditgroup -o edit -a sam -t user com.apple.access_screensharing'
 assert_logged '^curl -fsSL https://claude.ai/install.sh'
 assert_ok "first-login password change armed" grep -q 'mas-new-password' "$HOME/.zprofile"
+# the tmux and welcome-screen setup, written in their account (the fake sudo keeps this HOME)
+assert_ok "their own tmux settings" cmp -s "$REPO_DIR/config/tmux.conf" "$HOME/.tmux.conf"
+assert_eq "$(grep -c '^# mac-ai-server: welcome$' "$HOME/.zprofile")" 1 "welcome screen at SSH login"
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "SSH logins go into tmux"
+assert_eq "$(tail -1 "$HOME/.zprofile")" "# mac-ai-server: tmux attach end" "tmux attach is last"
+assert_ok "goes into the work session" grep -q 'tmux -L ssh new -As work' "$HOME/.zprofile"
+assert_eq "$(grep -c '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc")" 1 "new tmux windows show the welcome screen"
+assert_fails "no old two-line welcome" grep -q 'This Mac runs a shared local AI model' "$HOME/.zprofile"
+assert_ok "shared welcome screen" cmp -s "$REPO_DIR/bin/ai-motd" "$MAS_SYSROOT/usr/local/bin/ai-motd"
+assert_ok "shared mas-syncthing" test -x "$MAS_SYSROOT/usr/local/bin/mas-syncthing"
+assert_ok "card says they land in tmux" grep -q 'You land in tmux' "$PACKS/sam/card.txt"
 assert_eq "$(stat -f %Lp "$PACKS/sam")" 700 "info pack folder is private"
 assert_eq "$(stat -f %Lp "$PACKS/sam/card.txt")" 600 "card is private"
 assert_ok "card has the account" grep -q 'Your account: *sam' "$PACKS/sam/card.txt"
@@ -334,7 +346,100 @@ run users remove "$(id -un)" <<< "$(id -un)"
 assert_ok "can't remove yourself" has "your own account"
 FAKE_GROUP_MEMBER_RC=0 run users remove kim <<< kim
 assert_ok "can't remove an administrator" has "is an administrator"
-unset FAKE_OUT_dscl MAS_SYSROOT
+unset FAKE_OUT_dscl
+# --- users setup: the same setup for an account made earlier, only what's missing, nothing replaced
+cat > "$FB/dscl" <<'FAKE'
+#!/bin/bash
+echo "dscl $*" >> "$FAKE_LOG"
+case "$*" in *-list*) printf 'admin 501\nolly 502\n' ;; *NFSHomeDirectory*) echo "NFSHomeDirectory: $FAKE_OLLY_HOME" ;; esac
+FAKE
+chmod +x "$FB/dscl"
+OH="$T_TMP/ollyhome"; mkdir -p "$OH"; export FAKE_OLLY_HOME="$OH"
+printf '%s\n' '# mac-ai-server: first login on a shared Mac' 'if [ -f ~/.mas-new-password ] && [ -t 0 ]; then' '  passwd' 'fi' \
+  'if [ -t 1 ]; then' '  echo "This Mac runs a shared local AI model. Try: claude"' '  echo "claude-local or chat."' 'fi' 'export MINE=1' > "$OH/.zprofile"
+echo 'set -g mouse off' > "$OH/.tmux.conf"
+HOME="$OH" run users setup olly
+assert_eq "$?" 0 "users setup ok"
+assert_ok "their own tmux settings kept" grep -qx 'set -g mouse off' "$OH/.tmux.conf"
+assert_fails "old two-line welcome removed" grep -q 'This Mac runs a shared local AI model' "$OH/.zprofile"
+assert_ok "first-login block kept" grep -q 'passwd' "$OH/.zprofile"
+assert_ok "their own lines kept" grep -qx 'export MINE=1' "$OH/.zprofile"
+assert_eq "$(grep -c '^fi$' "$OH/.zprofile")" 3 "only the old welcome's if/fi went"
+HOME="$OH" run users setup olly
+assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$OH/.zprofile")" 1 "attach block once after a re-run"
+assert_eq "$(grep -c '^# mac-ai-server: tmux welcome$' "$OH/.zshrc")" 1 "welcome block once after a re-run"
+run users setup nobody
+assert_ok "unknown account refused" has "no person's account called nobody"
+run users setup "$(id -un)"
+assert_eq "$?" 1 "not your own account"
+# the attach block: tmux for an SSH login with a terminal only
+attach="$(sed -n '/^# mac-ai-server: tmux attach$/,/^# mac-ai-server: tmux attach end$/p' "$OH/.zprofile")"
+TM="$T_TMP/tm"; mkdir -p "$TM"; printf '#!/bin/sh\necho "tmux $*" >> "$FAKE_LOG"\n' > "$TM/tmux"; chmod +x "$TM/tmux"
+: > "$FAKE_LOG"
+env -i HOME="$OH" PATH="$TM:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" TERM=xterm SSH_CONNECTION="1 2 3 4" \
+  script -q /dev/null /bin/zsh -fc "$attach" > /dev/null 2>&1 < /dev/null
+assert_logged '^tmux -L ssh new -As work -c '
+: > "$FAKE_LOG"
+env -i HOME="$OH" PATH="$TM:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" SSH_CONNECTION="1 2 3 4" /bin/zsh -fc "$attach" > /dev/null 2>&1 < /dev/null
+assert_not_logged '^tmux'   # no terminal (scp, ssh host cmd)
+# the tmux welcome block: inside tmux, on a terminal, interactive; never in Claude Squad's sessions
+welcome="$(sed -n '/^# mac-ai-server: tmux welcome$/,/^# mac-ai-server: tmux welcome end$/p' "$OH/.zshrc")"
+MO="$T_TMP/mo"; mkdir -p "$MO"
+printf '#!/bin/sh\necho "ai-motd" >> "$FAKE_LOG"\n' > "$MO/ai-motd"
+printf '#!/bin/sh\necho "${FAKE_SESSION:-work}"\n' > "$MO/tmux"; chmod +x "$MO/ai-motd" "$MO/tmux"
+wz() { : > "$FAKE_LOG"; env -i HOME="$OH" PATH="$MO:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" "$@" script -q /dev/null /bin/zsh -fic "$welcome" > /dev/null 2>&1 < /dev/null; }
+wz TMUX=/tmp/x,1,0
+assert_logged '^ai-motd$'
+wz TMUX=/tmp/x,1,0 FAKE_SESSION=claudesquad_abc
+assert_not_logged '^ai-motd$'
+wz
+assert_not_logged '^ai-motd$'   # not in tmux: the SSH login shows it
+: > "$FAKE_LOG"; env -i HOME="$OH" PATH="$MO:/usr/bin:/bin" FAKE_LOG="$FAKE_LOG" TMUX=/tmp/x,1,0 /bin/zsh -fc "$welcome" > /dev/null 2>&1
+assert_not_logged '^ai-motd$'   # scripts and Claude Code's shells: not interactive
+
+# --- users syncthing: their own Syncthing as a system service that runs as them
+mkdir -p "$MAS_BREW_PREFIX/bin"
+cat > "$MAS_BREW_PREFIX/bin/syncthing" <<'FAKE'
+#!/bin/bash
+echo "syncthing $*" >> "$FAKE_LOG"
+if [ "$1" = generate ]; then
+  h="${2#--home=}"; mkdir -p "$h"
+  printf '%s\n' '<configuration version="51">' '    <gui enabled="true" tls="false">' '        <address>127.0.0.1:8384</address>' \
+    '    </gui>' '    <options>' '        <listenAddress>default</listenAddress>' '        <relaysEnabled>true</relaysEnabled>' '    </options>' '</configuration>' > "$h/config.xml"
+fi
+FAKE
+chmod +x "$MAS_BREW_PREFIX/bin/syncthing"
+printf '#!/bin/sh\necho "pkill $*" >> "$FAKE_LOG"\nexit 1\n' > "$FB/pkill"; chmod +x "$FB/pkill"
+STP="$MAS_SYSROOT/Library/LaunchDaemons/local.syncthing.olly.plist"
+run users syncthing olly
+assert_eq "$?" 0 "users syncthing ok"
+assert_logged '^syncthing generate --home=.*/ollyhome/Library/Application Support/Syncthing'
+STC="$OH/Library/Application Support/Syncthing/config.xml"
+assert_ok "own listen port" grep -q '<listenAddress>tcp://:22001</listenAddress>' "$STC"
+assert_ok "web page on a socket in their home" grep -q "<address>$OH/.syncthing.sock</address>" "$STC"
+assert_fails "not your web page port" grep -q '127.0.0.1:8384' "$STC"
+assert_ok "service runs as them" grep -q '<key>UserName</key><string>olly</string>' "$STP"
+assert_ok "service runs mas-syncthing" grep -q '<string>/usr/local/bin/mas-syncthing</string><string>run</string>' "$STP"
+assert_ok "service HOME is theirs" grep -q "<key>HOME</key><string>$OH</string>" "$STP"
+assert_ok "plist is valid" plutil -lint -s "$STP"
+assert_logged '^launchctl bootout system/local.syncthing.olly'
+assert_logged '^launchctl bootstrap system .*local.syncthing.olly.plist'
+assert_logged '^pkill -u olly -f syncthing serve'
+assert_ok "tells them how to manage it" has "mas-syncthing status | on | off"
+# settings they already have are kept
+echo '<gui enabled="true"><address>127.0.0.1:8385</address></gui> MINE' > "$STC"
+run users syncthing olly
+assert_not_logged '^syncthing generate'
+assert_ok "existing settings kept" grep -q 'MINE' "$STC"
+assert_ok "says so" has "Keeping olly's own Syncthing settings"
+run users
+assert_ok "list shows it" grep -Eq 'olly \(.*Syncthing' "$OUT"
+run users syncthing olly --remove
+assert_fails "service removed" test -e "$STP"
+assert_ok "settings untouched" grep -q 'MINE' "$STC"
+run users syncthing olly --frob
+assert_ok "unknown option refused" has "Unknown option '--frob'"
+unset MAS_SYSROOT
 run users frob
 assert_eq "$?" 1 "unknown users option fails"
 

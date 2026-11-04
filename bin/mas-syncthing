@@ -1,0 +1,85 @@
+#!/bin/bash
+# mas-syncthing: your own Syncthing on a shared Mac, kept running from boot by a system service that
+# runs as you (set up with: mac-ai-server users syncthing <you>). No admin rights needed to use it:
+#   mas-syncthing status | on | off | restart | web | log
+# Everything about it is yours: its settings, folders and devices are in
+# ~/Library/Application Support/Syncthing, and you can change them in its web page (mas-syncthing web).
+# Env (tests): MAS_SYNCTHING_BIN.
+set -u
+ST="${MAS_SYNCTHING_BIN:-/opt/homebrew/bin/syncthing}"
+HOMEDIR="$HOME/Library/Application Support/Syncthing"
+STATE="$HOME/.config/mas-syncthing"
+OFF="$STATE/off"
+LOG="$HOME/Library/Logs/syncthing.log"
+
+running() { pgrep -u "$(id -u)" -f "syncthing serve" >/dev/null 2>&1; }
+cli() { "$ST" cli --home="$HOMEDIR" "$@"; }
+# The web page address from your settings: a socket file (only you can open it) or 127.0.0.1:<port>
+gui_address() { sed -n '/<gui /,/<\/gui>/s:.*<address>\(.*\)</address>.*:\1:p' "$HOMEDIR/config.xml" 2>/dev/null | head -1; }
+
+usage() {
+  cat <<'USAGE'
+mas-syncthing: your Syncthing on this Mac (it starts by itself at boot)
+
+  mas-syncthing status    Is it running, this Mac's device ID, connected devices
+  mas-syncthing on        Start it, and keep it starting at boot
+  mas-syncthing off       Stop it, and keep it stopped (also after a restart of the Mac)
+  mas-syncthing restart   Restart it (after changing its settings by hand)
+  mas-syncthing web       How to open its web page from your own computer
+  mas-syncthing log       The last lines of its log (~/Library/Logs/syncthing.log)
+USAGE
+}
+
+case "${1:-status}" in
+  run)  # the system service (local.syncthing.<you>) runs this at boot and keeps it running
+    [ -f "$OFF" ] && exit 0
+    [ -f "$HOMEDIR/config.xml" ] || { echo "No Syncthing settings in $HOMEDIR" >&2; exit 0; }
+    running && exit 0   # one you started by hand: leave it, and the service tries again later
+    mkdir -p "$(dirname "$LOG")"
+    [ "$(stat -f %z "$LOG" 2>/dev/null || echo 0)" -gt 10485760 ] && mv -f "$LOG" "$LOG.1"
+    a="$(gui_address)"
+    case "$a" in /*) [ -S "$a" ] && rm -f "$a" ;; esac   # left over from a crash
+    exec "$ST" serve --home="$HOMEDIR" --no-browser --no-restart >> "$LOG" 2>&1 ;;
+  status)
+    if [ ! -f "$HOMEDIR/config.xml" ]; then
+      echo "Syncthing isn't set up for you yet. Ask whoever runs this Mac to run: mac-ai-server users syncthing $(id -un)"
+      exit 1
+    fi
+    if running; then echo "Syncthing: running"
+    elif [ -f "$OFF" ]; then echo "Syncthing: off (mas-syncthing on starts it)"
+    else echo "Syncthing: not running yet (the service starts it within a minute; mas-syncthing log shows why not)"; fi
+    echo "This Mac's device ID: $("$ST" device-id --home="$HOMEDIR" 2>/dev/null || echo '?')"
+    if running; then
+      cli show connections 2>/dev/null | /usr/bin/python3 -I -c 'import json, sys
+c = json.load(sys.stdin).get("connections", {})
+on = [k[:7] for k, v in c.items() if v.get("connected")]
+print("Connected devices: " + (", ".join(on) if on else "none yet"))' 2>/dev/null
+    fi
+    echo "Settings and folders: $HOMEDIR (or its web page: mas-syncthing web)" ;;
+  on)
+    rm -f "$OFF"
+    if running; then echo "Syncthing is already running."
+    else echo "Syncthing will start within a minute, and at every boot."; fi ;;
+  off)
+    mkdir -p "$STATE" && touch "$OFF"
+    running && cli operations shutdown >/dev/null 2>&1
+    echo "Syncthing is off, and stays off after a restart of the Mac. mas-syncthing on starts it again." ;;
+  restart)
+    running || { echo "Syncthing isn't running. mas-syncthing on starts it."; exit 1; }
+    cli operations restart >/dev/null 2>&1 && echo "Restarting Syncthing." ;;
+  web)
+    a="$(gui_address)"
+    host="$(tailscale status --json 2>/dev/null | /usr/bin/python3 -I -c 'import json, sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null)"
+    host="${host:-$(scutil --get LocalHostName 2>/dev/null).local}"
+    case "$a" in
+      /*) fwd="8385:$a" ;;
+      *:*) fwd="${a##*:}:127.0.0.1:${a##*:}" ;;
+      *) echo "Couldn't find the web page address in $HOMEDIR/config.xml"; exit 1 ;;
+    esac
+    echo "Its web page only opens on this Mac. From your own computer, run (and leave it running):"
+    echo "  ssh -N -L $fwd $(id -un)@$host"
+    echo "then open http://localhost:${fwd%%:*} in your browser. Ctrl-C closes the tunnel." ;;
+  log) tail -n 40 "$LOG" 2>/dev/null || echo "No log yet ($LOG)." ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac

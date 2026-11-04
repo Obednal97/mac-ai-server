@@ -22,7 +22,8 @@ mac-ai-server users add sam "Sam Example" --wireguard   # they connect with Wire
 3. **The account gets a random temporary password** like `k7mp-x2qa-9fhd`. It's set through `dscl`'s standard input, so it never appears in a command line. At their first login they choose their own.
 4. **They can connect** over SSH. On a fresh Mac it's open to administrators only. They're let into Screen Sharing too, but the card leaves it out: when Screen Sharing was switched on from the command line, macOS 27 refuses everyone until it's switched off and on again at the Mac (System Settings → General → Sharing).
 5. **Claude Code is installed** in their account, with its own copy of each shared plugin (see below). They log in with **their own** Claude account the first time they run `claude`.
-6. **You get an info pack** in `~/.mac-ai-server/users/sam/`, readable only by you. It has:
+6. **They get tmux and the welcome screen,** like you: see [What each person gets](#what-each-person-gets).
+7. **You get an info pack** in `~/.mac-ai-server/users/sam/`, readable only by you. It has:
    - a card with their account name, the temporary password, how to connect and what to do once they're in;
    - for WireGuard, their tunnel file and a QR code for phones.
 
@@ -64,9 +65,11 @@ For people who won't sign up for anything. They install the free WireGuard app a
 ### Other commands
 
 ```bash
-mac-ai-server users              # list the accounts, and how each one connects
-mac-ai-server users card sam     # show sam's card again (--link <link> adds the Tailscale invite)
-mac-ai-server users remove sam   # delete sam's account, files and info pack (asks you to type the name)
+mac-ai-server users                  # list the accounts, and how each one connects
+mac-ai-server users card sam         # show sam's card again (--link <link> adds the Tailscale invite)
+mac-ai-server users setup sam        # give an older account what new ones get (tmux, welcome screen)
+mac-ai-server users syncthing sam    # keep sam's own Syncthing running from boot (--remove stops that)
+mac-ai-server users remove sam       # delete sam's account, files and info pack (asks you to type the name)
 ```
 
 `users remove` won't remove you, an administrator or a system account. Remove administrators in System Settings → Users & Groups.
@@ -74,6 +77,41 @@ mac-ai-server users remove sam   # delete sam's account, files and info pack (as
 **`users add` and `users remove` need Full Disk Access.** macOS checks it before it changes an account. Without it, each change stalls for 5 minutes and then fails, leaving the account half-done (found on a real Mac, macOS 27). So both commands check first and stop if it's missing.
 - **The tmux session never has it.** macOS checks tmux itself, which starts from a LaunchAgent. Leave tmux (**Ctrl-b** then **d**) and run the command from the plain shell.
 - **Over SSH,** the plain shell has it when **Allow full disk access for remote users** is on (System Settings → General → Sharing → Remote Login ⓘ). In a terminal app at the Mac, that app needs Full Disk Access.
+
+## What each person gets
+
+`users add` sets up each new account the way yours works over SSH. It runs in **their** account, so every file is theirs to change. `users setup <name>` does the same for an account made before this existed. It only adds what's missing, and never replaces anything they've changed.
+
+- **The welcome screen at SSH login:** the commands, and how to get back into tmux. It's still on screen after they leave tmux, so the way back in is right there.
+- **Straight into tmux:** every SSH login with a terminal attaches to their own session `work` (`tmux -L ssh new -As work`), so what they run keeps going after they disconnect. **Ctrl-b** then **d** leaves it running. `LC_NOTMUX=1 ssh ...` skips it, and so do `scp` and `ssh host <command>`.
+- **The welcome screen in every new tmux window or pane.** Inside tmux it says they're in tmux, which session it is, tmux's keys, and the command that gets back in. Not in Claude Squad's sessions, and never in scripts or Claude Code's own shells.
+- **Your tmux settings** (mouse, scrollback, the keys in the status bar) as their own `~/.tmux.conf`, unless they already have one.
+
+To stop any of it, they delete the marked block (`# mac-ai-server: welcome`, `tmux attach` or `tmux welcome`) from their `~/.zprofile` or `~/.zshrc`. The welcome screen is shared, in `/usr/local/bin/ai-motd`, and kept up to date by `mac-ai-server install`. A copy of their own in `~/.local/bin/ai-motd` replaces it for them.
+
+### Syncthing for one person
+
+Someone who wants files from their own computer on this Mac (Claude Code skills, notes, a project) can run their own [Syncthing](https://syncthing.net). It's separate from yours, under their account, with their own settings, folders and devices. It doesn't need a shared Tailscale: Syncthing finds their computer by itself.
+
+`mac-ai-server users syncthing sam` keeps sam's Syncthing running from boot:
+- **A system service runs it as sam** (`/Library/LaunchDaemons/local.syncthing.sam.plist`), so it starts at boot even if sam never logs in. Installing it needs your admin password. After that, sam runs it without one:
+
+  ```bash
+  mas-syncthing status    # running?, this Mac's device ID, connected devices
+  mas-syncthing on        # start it, and keep it starting at boot
+  mas-syncthing off       # stop it, and keep it stopped (also after a restart)
+  mas-syncthing restart   # after changing its settings by hand
+  mas-syncthing web       # how to open its web page from their own computer (an SSH tunnel)
+  mas-syncthing log       # the last lines of ~/Library/Logs/syncthing.log
+  ```
+
+- **Settings they already have are kept,** and a copy they'd started by hand is stopped first: two can't share the database.
+- **New settings get their own ports:** 22000 plus their account number above yours (yours is 22000). The web page goes on a socket file in their private home folder (`~/.syncthing.sock`), so no other account can open it. A web page on `127.0.0.1` with no password could be used by every account on the Mac.
+- `users syncthing sam --remove` stops it starting at boot and leaves their settings and files. `users remove` removes the service too.
+
+Things to tell them:
+- **Chat history is filed by folder path.** Claude Code keeps each project's chats under its full path (`~/.claude/projects/-Users-<name>-...`). If their account name differs between computers, synced chats arrive, but `claude --resume` on this Mac won't list them for the matching folder. Running the same chat on both computers at once makes conflict copies.
+- **Never sync `~/.claude.json` or Claude Code's login.** Each computer keeps its own.
 
 ## What multi-user mode changes
 

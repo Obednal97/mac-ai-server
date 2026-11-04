@@ -233,6 +233,8 @@ assert_fails "no shared copies by default" test -e "$SYSBIN/claude-local"
 runfn mod_run "${PLAN[@]}" MAS_MULTIUSER=yes
 assert_ok "shared claude-local" cmp -s "$BIN/claude-local" "$SYSBIN/claude-local"
 assert_ok "shared chat" cmp -s "$BIN/chat" "$SYSBIN/chat"
+assert_ok "shared welcome screen" cmp -s "$REPO_DIR/bin/ai-motd" "$SYSBIN/ai-motd"
+assert_ok "shared mas-syncthing" cmp -s "$REPO_DIR/bin/mas-syncthing" "$SYSBIN/mas-syncthing"
 assert_eq "$(stat -f %Lp "$SYSBIN/claude-local")" 755 "shared copy is 755"
 runfn mod_check "${PLAN[@]}" MAS_MULTIUSER=yes FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$?" 0 "check ok with shared copies"
@@ -244,6 +246,7 @@ assert_eq "$?" 1 "check fails on a stale shared copy"
 assert_ok "stale shared copy fix" has "fail The shared chat .* — run: mac-ai-server install --only claude"
 runfn mod_run "${PLAN[@]}" MAS_MULTIUSER=no
 assert_fails "shared claude-local removed when turned off" test -e "$SYSBIN/claude-local"
+assert_fails "shared welcome screen removed when turned off" test -e "$SYSBIN/ai-motd"
 assert_ok "a file that isn't ours is left alone" test -e "$SYSBIN/chat"
 rm -f "$SYSBIN/chat"
 # SSH logins unlock the keychain: script installed, its own ~/.zprofile block, added once
@@ -308,6 +311,40 @@ assert_eq "$(grep -c '^# mac-ai-server: tmux attach$' "$HOME/.zprofile")" 1 "old
 assert_fails "old attach line gone" grep -q 'tmux new -As main' "$HOME/.zprofile"
 assert_eq "$(tail -1 "$HOME/.zprofile")" "# mac-ai-server: tmux attach end" "new block is last"
 assert_ok "rest kept after the swap" grep -qx 'export KEEP=1' "$HOME/.zprofile"
+# new tmux windows show the welcome screen: ~/.zshrc block once, after the PATH line; MAS_TMUX_MOTD=no removes it
+assert_eq "$(grep -c '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc")" 1 "tmux welcome block added once"
+assert_ok "after the PATH line" test "$(grep -n '.local/bin' "$HOME/.zshrc" | head -1 | cut -d: -f1)" -lt "$(grep -n '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc" | cut -d: -f1)"
+echo 'export KEEPRC=1' >> "$HOME/.zshrc"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MOTD=no
+assert_fails "MAS_TMUX_MOTD=no removes it" grep -q 'mac-ai-server: tmux welcome' "$HOME/.zshrc"
+assert_ok "rest of .zshrc kept" grep -qx 'export KEEPRC=1' "$HOME/.zshrc"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "check notices the missing welcome block" has "fail new tmux windows don't show the welcome screen"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MOTD=no
+assert_eq "$?" 0 "not checked when turned off"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$(grep -c '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc")" 1 "added back once"
+# the welcome screen: inside tmux it says so, lists tmux's keys and how to get back in; outside, how to get back in
+AM="$T_TMP/am"; mkdir -p "$AM"
+cat > "$AM/tmux" <<'SH'
+#!/bin/sh
+case "$*" in "display-message -p #S") echo work ;; "-L ssh ls -F #S") echo work ;; "ls -F #S") echo main ;; esac
+SH
+chmod +x "$AM/tmux"
+OTHER_HOME="$T_TMP/other"; mkdir -p "$OTHER_HOME"   # another account: no Remote Control agent
+motd() { env -i HOME="$OTHER_HOME" MAS_BREW_PREFIX="$MAS_BREW_PREFIX" PATH="$AM:$SAFE_PATH" "$@" /bin/bash "$REPO_DIR/bin/ai-motd" 2>&1 | sed $'s/\033\\[[0-9;]*m//g'; }
+in_tmux="$(motd TMUX=/private/tmp/tmux-501/ssh,1,0)"
+assert_ok "inside tmux: says so" grep -q "You're in tmux (session work)" <<< "$in_tmux"
+assert_ok "inside tmux: the keys" grep -q 'd  leave tmux (it keeps running)' <<< "$in_tmux"
+assert_ok "inside tmux: how to get back" grep -qF 'Back in after leaving: tmux -L ssh new -As work' <<< "$in_tmux"
+assert_ok "default server: plain tmux command" grep -qF 'tmux new -As work' <<< "$(motd TMUX=/private/tmp/tmux-501/default,1,0)"
+out_tmux="$(motd)"
+assert_fails "outside tmux: no tmux keys" grep -q "You're in tmux" <<< "$out_tmux"
+assert_ok "outside tmux: running session and how back in" grep -qF 'tmux is running: work. Back in: tmux -L ssh new -As work' <<< "$out_tmux"
+assert_ok "outside tmux: the default server's sessions" grep -q 'also running: main' <<< "$out_tmux"
+assert_fails "another account: no owner commands" grep -q 'mac-ai-server' <<< "$out_tmux"
+mkdir -p "$OTHER_HOME/Library/LaunchAgents"; touch "$OTHER_HOME/Library/LaunchAgents/local.ai-tmux.plist"
+assert_ok "the owner: mac-ai-server listed" grep -q 'mac-ai-server   doctor' <<< "$(motd)"
 # a setup-token file counts as logged in
 rm -f "$HOME/.claude/.credentials.json"; mkdir -p "$HOME/.mac-ai-server"; echo tok > "$HOME/.mac-ai-server/claude-token"
 runfn mod_check "${PLAN[@]}" "$LOGGED_OUT" FAKE_LAUNCHCTL_LOADED=1

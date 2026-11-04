@@ -45,6 +45,8 @@ mac-ai-server: look after your AI server
   mac-ai-server tools                Show, add or remove developer tools (tools add <name>)
   mac-ai-server permissions          Walk through the macOS permissions
   mac-ai-server users                Show the accounts; users add <name> [--wireguard] / card / remove
+  mac-ai-server users setup <name>   Give an account the tmux and welcome-screen setup new accounts get
+  mac-ai-server users syncthing <n>  Keep that person's own Syncthing running from boot (--remove stops it)
   mac-ai-server token set            Log Claude Code in without the keychain (claude setup-token)
   mac-ai-server unlock               Unlock the login keychain (this SSH session and tmux)
   mac-ai-server handover <step>      Prepare this Mac for a new owner (phase1, phase2, local, dry-run)
@@ -325,13 +327,128 @@ CARD
   cat <<CARD
 
 Once you're in:
+  You land in tmux (session "work"), so what you run keeps going after you
+  disconnect. The welcome screen lists its keys: Ctrl-b then d leaves it
+  running, and the next login takes you straight back.
   claude          Claude Code. Log in with your own Claude account the first time.
   claude-local    Claude Code on this Mac's own AI model (private, free, slower)
   chat            a quick chat with the local model
-  tmux -L ssh new -As work   keeps your work running when you disconnect (Ctrl-b d to leave it)
 
 Your files, projects and Claude login are private to you. The AI models are shared.
 CARD
+}
+
+# users_shared_bins: the welcome screen and mas-syncthing, shared with every account (/usr/local/bin)
+users_shared_bins() {
+  local f sysbin="${MAS_SYSROOT:-}/usr/local/bin"
+  for f in ai-motd mas-syncthing; do
+    cmp -s "$MAS_ROOT/bin/$f" "$sysbin/$f" && continue
+    sudo mkdir -p "$sysbin" && sudo install -m 755 "$MAS_ROOT/bin/$f" "$sysbin/$f" || return 1
+  done
+}
+
+# users_kit <name>: lib/user-kit.sh in their own account (so the files are theirs), with the owner's
+# tmux settings and the tmux welcome block. Adds only what's missing.
+users_kit() {
+  users_shared_bins || mas_warn "Couldn't install the shared welcome screen in /usr/local/bin."
+  ( cd / && sudo -u "$1" -H /bin/bash -c "$(cat "$MAS_ROOT/lib/user-kit.sh")" user-kit \
+      "$(cat "$MAS_ROOT/config/tmux.conf")" "$(mas_tmux_welcome_block)" )
+}
+
+users_setup() {
+  local name="${1:-}"
+  valid_user "$name" || mas_die "Say whose account to set up. Like: mac-ai-server users setup sam"
+  people | grep -qx "$name" || mas_die "There's no person's account called $name."
+  [ "$name" = "$(id -un)" ] && mas_die "That's your own account: mac-ai-server install --only claude sets up yours."
+  users_kit "$name" || mas_die "Couldn't set up $name's account."
+  echo "Done. $name gets it from their next SSH login (or a new tmux window). Their files are theirs to change; nothing they'd changed was replaced."
+}
+
+# ---- Syncthing for one person: their own copy, run from boot as them by a system service
+# (/Library/LaunchDaemons/local.syncthing.<name>.plist). The service runs `mas-syncthing run` as that
+# person, so they control it without admin rights (mas-syncthing on/off/restart), and its settings are
+# theirs. New settings get their own ports and a web page on a socket file in their private home folder,
+# so no other account can open it.
+st_label() { printf 'local.syncthing.%s' "$1"; }
+st_plist() { printf '%s/Library/LaunchDaemons/%s.plist' "${MAS_SYSROOT:-}" "$(st_label "$1")"; }
+
+users_syncthing() {
+  local name="${1:-}" h uid st plist label conf tmp
+  valid_user "$name" || mas_die "Say whose Syncthing to set up. Like: mac-ai-server users syncthing sam [--remove]"
+  people | grep -qx "$name" || mas_die "There's no person's account called $name."
+  [ "$name" = "$(id -un)" ] && mas_die "That's your own account. This is for the other people on this Mac."
+  label="$(st_label "$name")"; plist="$(st_plist "$name")"
+  case "${2:-}" in
+    --remove)
+      sudo launchctl bootout "system/$label" >/dev/null 2>&1
+      sudo rm -f "$plist"
+      echo "$name's Syncthing no longer starts at boot. Their settings and synced files are untouched."
+      return 0 ;;
+    "") ;;
+    *) mas_die "Unknown option '$2'. Try: mac-ai-server users syncthing $name [--remove]" ;;
+  esac
+  h="$(user_home "$name")"; [ -n "$h" ] || mas_die "Couldn't find $name's home folder."
+  uid="$(id -u "$name" 2>/dev/null)"; uid="${uid:-502}"
+  st="${MAS_BREW_PREFIX:-/opt/homebrew}/bin/syncthing"
+  if [ ! -x "$st" ]; then
+    echo "Installing Syncthing..."
+    "${MAS_BREW_PREFIX:-/opt/homebrew}/bin/brew" install syncthing >/dev/null || mas_die "Couldn't install Syncthing. Try: brew install syncthing"
+  fi
+  users_shared_bins || mas_die "Couldn't install mas-syncthing in /usr/local/bin."
+  conf="$h/Library/Application Support/Syncthing"
+  if sudo test -f "$conf/config.xml"; then
+    echo "Keeping $name's own Syncthing settings, folders and devices."
+  else
+    # Their own ports (yours are 22000 and the web page 8384), and the web page on a socket file only they can open
+    ( cd / && sudo -u "$name" -H "$st" generate --home="$conf" --no-port-probing >/dev/null 2>&1 ) \
+      || mas_die "Syncthing couldn't make settings for $name."
+    ( cd / && sudo -u "$name" -H /usr/bin/python3 -I -c 'import re, sys
+p, port, sock = sys.argv[1:]
+x = open(p).read()
+x = re.sub(r"(<gui [^>]*>\s*<address>)[^<]*", lambda m: m.group(1) + sock, x, count=1)
+x = re.sub(r"(<options>.*?)(<listenAddress>[^<]*</listenAddress>\s*)+", lambda m: m.group(1) + "<listenAddress>tcp://:%s</listenAddress><listenAddress>quic://:%s</listenAddress>" % (port, port), x, count=1, flags=re.S)
+open(p, "w").write(x)' "$conf/config.xml" "$((22000 + uid - 501))" "$h/.syncthing.sock" ) \
+      || mas_die "Couldn't give $name's Syncthing its own ports."
+    echo "Made Syncthing settings for $name (port $((22000 + uid - 501)); web page only they can open)."
+  fi
+  # One copy at a time: stop the service, and any Syncthing they started by hand (it holds the database)
+  sudo launchctl bootout "system/$label" >/dev/null 2>&1
+  if sudo pkill -u "$name" -f 'syncthing serve' 2>/dev/null; then
+    echo "Stopped the Syncthing $name had started by hand; the service runs it from now on."
+    sleep 2
+  fi
+  tmp="$(mktemp "${TMPDIR:-/tmp}/mas-st.XXXXXX")" || return 1
+  cat > "$tmp" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>UserName</key><string>$name</string>
+  <key>GroupName</key><string>staff</string>
+  <key>ProgramArguments</key>
+  <array><string>/usr/local/bin/mas-syncthing</string><string>run</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>$h</string>
+    <key>USER</key><string>$name</string>
+    <key>PATH</key><string>${MAS_BREW_PREFIX:-/opt/homebrew}/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>WorkingDirectory</key><string>$h</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StartInterval</key><integer>60</integer>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>
+PLIST
+  sudo mkdir -p "$(dirname "$plist")" && sudo install -m 644 "$tmp" "$plist" && sudo chown root:wheel "$plist" 2>/dev/null
+  rm -f "$tmp"
+  sudo launchctl bootstrap system "$plist" || mas_die "Couldn't start $name's Syncthing service ($plist)."
+  echo "$name's Syncthing runs from boot, as $name. They manage it themselves (no admin rights needed):"
+  echo "  mas-syncthing status | on | off | restart | web | log"
+  echo "To stop it starting at boot: mac-ai-server users syncthing $name --remove"
 }
 
 users_list() {
@@ -341,6 +458,7 @@ users_list() {
     tag="standard"; is_admin "$u" && tag="administrator"
     [ "$u" = "$(id -un)" ] && tag="$tag, you"
     [ -f "$USERS_DIR/$u/method" ] && tag="$tag, via $(cat "$USERS_DIR/$u/method")"
+    [ -f "$(st_plist "$u")" ] && tag="$tag, Syncthing"
     printf '  %s (%s)\n' "$u" "$tag"
   done
   [ "${MAS_MULTIUSER:-no}" = yes ] || echo "Multi-user mode is off. mac-ai-server users add <name> turns it on."
@@ -402,13 +520,10 @@ if [ -f ~/.mas-new-password ] && [ -t 0 ]; then
   echo "Welcome. First, choose your own password (you will need the temporary one once more)."
   passwd && rm -f ~/.mas-new-password
 fi
-if [ -t 1 ]; then
-  echo "This Mac runs a shared local AI model. Try: claude (log in with your own Claude account),"
-  echo "claude-local (Claude Code on the local model) or chat. Your files are private to you."
-fi
 BLOCK
   '
   mas_mu_install_plugins "$name" "$h" || true
+  users_kit "$name" || mas_warn "Couldn't give $name the tmux and welcome-screen setup. Try: mac-ai-server users setup $name"
 
   # The info pack: card, plus their WireGuard file and QR code. Private to you; send it privately.
   d="$USERS_DIR/$name"; mkdir -p "$d" && chmod 700 "$USERS_DIR" "$d"
@@ -467,6 +582,10 @@ users_remove() {
   for g in com.apple.access_ssh com.apple.access_screensharing; do
     dscl . -read "/Groups/$g" >/dev/null 2>&1 && sudo dseditgroup -o edit -d "$name" -t user "$g" >/dev/null 2>&1
   done
+  # their Syncthing service would keep trying to start as an account that's gone
+  if [ -f "$(st_plist "$name")" ]; then
+    sudo launchctl bootout "system/$(st_label "$name")" >/dev/null 2>&1; sudo rm -f "$(st_plist "$name")"
+  fi
   # sysadminctl logs each step to stderr; only shown when it fails
   out="$(sudo sysadminctl -deleteUser "$name" 2>&1)"
   if id "$name" >/dev/null 2>&1; then printf '%s\n' "$out" >&2; mas_die "Couldn't remove $name."; fi
@@ -482,7 +601,9 @@ cmd_users() {
     add) users_add "$@" ;;
     card) users_card "$@" ;;
     remove) users_remove "$@" ;;
-    *) mas_die "Unknown users option '$sub'. Try: list, add <name> [\"Full Name\"] [--wireguard], card <name>, remove <name>" ;;
+    setup) users_setup "$@" ;;
+    syncthing) users_syncthing "$@" ;;
+    *) mas_die "Unknown users option '$sub'. Try: list, add <name> [\"Full Name\"] [--wireguard], card <name>, setup <name>, syncthing <name> [--remove], remove <name>" ;;
   esac
 }
 

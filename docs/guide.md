@@ -263,7 +263,8 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_SQUAD_SKIP_PERMISSIONS` | `no` | `yes`: sessions started in `cs` (`claude` and `claude-local`) skip permission prompts. |
 | `MAS_DEV_TOOLS` | `"node pnpm uv git gh jq ripgrep"` | Homebrew developer tools. Empty means none. |
 | `MAS_AGENT_MODE` | `no` | Passwordless admin plus no permission prompts. |
-| `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `main`. |
+| `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `work`. |
+| `MAS_TMUX_MOTD` | `yes` | Every new tmux window or pane starts with the welcome screen and tmux's keys. |
 | `MAS_HANDOVER` | `no` | You plan to hand this Mac to someone else. |
 | `MAS_REMOVE_APPS` | `no` | `yes` deletes GarageBand, iMovie, Keynote, Numbers and Pages. |
 | `MAS_SUDO` | `terminal` | How the installer gets admin rights. Leave it as is; Claude sets the other mode for one run only. |

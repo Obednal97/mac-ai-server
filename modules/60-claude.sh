@@ -19,6 +19,11 @@ _mas_cl_logged_in() {
 _mas_cl_ours() { [ -f "$2" ] && [ "$(sed -n 2p "$2")" = "$(sed -n 2p "$MAS_MOD_ROOT/bin/$1")" ]; }
 # The SSH block counts as installed if it has our marker or the old kit's ai-motd call (ruling R4).
 _mas_cl_zprofile_count() { grep -cE 'ai-motd|# mac-ai-server: ssh' "$HOME/.zprofile" 2>/dev/null || true; }
+# Remove the "tmux welcome" block from ~/.zshrc.
+_mas_cl_drop_welcome() {
+  sed '/^# mac-ai-server: tmux welcome$/,/^# mac-ai-server: tmux welcome end$/d' "$HOME/.zshrc" > "$HOME/.zshrc.mas" &&
+    mv "$HOME/.zshrc.mas" "$HOME/.zshrc"
+}
 # Remove the "tmux attach" block from ~/.zprofile.
 _mas_cl_drop_attach() {
   sed '/^# mac-ai-server: tmux attach$/,/^# mac-ai-server: tmux attach end$/d' "$HOME/.zprofile" > "$HOME/.zprofile.mas" &&
@@ -77,9 +82,16 @@ mod_run() {
         mas_warn "Couldn't install $sysbin/$f for the other accounts."; rc=1
       fi
     done
-    [ "$rc" -eq 0 ] && echo "claude-local and chat are shared with every account on this Mac ($sysbin)."
+    # the welcome screen and mas-syncthing (a person's own Syncthing: mac-ai-server users syncthing <name>)
+    for f in ai-motd mas-syncthing; do
+      cmp -s "$MAS_MOD_ROOT/bin/$f" "$sysbin/$f" && continue
+      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$MAS_MOD_ROOT/bin/$f" "$sysbin/$f"; }; then
+        mas_warn "Couldn't install $sysbin/$f for the other accounts."; rc=1
+      fi
+    done
+    [ "$rc" -eq 0 ] && echo "claude-local, chat and the welcome screen are shared with every account on this Mac ($sysbin)."
   else
-    for f in claude-local chat; do _mas_cl_ours "$f" "$sysbin/$f" && sudo rm -f "$sysbin/$f"; done
+    for f in claude-local chat ai-motd mas-syncthing; do _mas_cl_ours "$f" "$sysbin/$f" && sudo rm -f "$sysbin/$f"; done
     # and the shared plugins and skills (written by the multiuser module)
     local shared="${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
     [ -f "$shared" ] && sudo rm -f "$shared"
@@ -171,6 +183,13 @@ BLOCK
   # shellcheck disable=SC2016  # literal line for the shell profile
   grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null \
     || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+  # Every new tmux window or pane starts with the welcome screen and tmux's keys (MAS_TMUX_MOTD=no turns
+  # it off). After the PATH line, so ai-motd is found.
+  if [ "${MAS_TMUX_MOTD:-yes}" = yes ]; then
+    grep -q '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc" 2>/dev/null || mas_tmux_welcome_block >> "$HOME/.zshrc"
+  elif grep -q '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc" 2>/dev/null; then
+    _mas_cl_drop_welcome && echo "New tmux windows no longer show the welcome screen."
+  fi
   # The optional setup-token login, for when the keychain is locked (does nothing without the file).
   # shellcheck disable=SC2016  # literal line for the shell profile
   grep -q 'mac-ai-server/claude-token' "$HOME/.zshrc" 2>/dev/null \
@@ -219,6 +238,10 @@ mod_check() {
     echo "fail SSH logins go into the desktop's tmux session, where Claude Code can hang on a Full Disk Access dialog — run: mac-ai-server install --only claude"
     return 1
   fi
+  if [ "${MAS_TMUX_MOTD:-yes}" = yes ] && ! grep -q '^# mac-ai-server: tmux welcome$' "$HOME/.zshrc" 2>/dev/null; then
+    echo "fail new tmux windows don't show the welcome screen (block missing from ~/.zshrc) — run: mac-ai-server install --only claude"
+    return 1
+  fi
   if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then
     echo "fail unknown terminal types (like Ghostty's) aren't handled, so tmux may refuse to start — run: mac-ai-server install --only claude"
     return 1
@@ -241,6 +264,12 @@ mod_check() {
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
     for n in claude-local chat; do
       if ! cmp -s "$bin/$n" "$(_mas_cl_sysbin)/$n"; then
+        echo "fail The shared $n for other accounts is missing or out of date — run: mac-ai-server install --only claude"
+        return 1
+      fi
+    done
+    for n in ai-motd mas-syncthing; do
+      if ! cmp -s "$MAS_MOD_ROOT/bin/$n" "$(_mas_cl_sysbin)/$n"; then
         echo "fail The shared $n for other accounts is missing or out of date — run: mac-ai-server install --only claude"
         return 1
       fi
