@@ -82,6 +82,8 @@ You'll see the **welcome screen**:
 - After a restart, the first SSH login starts the `work` session again (fresh: what ran in it before the restart is gone).
 - To turn it off: `MAS_TMUX_ATTACH=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`.
 
+**The welcome screen in every new tmux window.** Each new tmux window or pane starts with the welcome screen (a block in `~/.zshrc`). Inside tmux it also says you're in tmux, which session it is, tmux's keys, and the command that gets back in. It's skipped in Claude Squad's sessions, and in scripts and Claude Code's own shells (they aren't interactive). The copy shown at SSH login stays too: when you leave tmux it's still on screen, with the way back in. To turn the tmux one off: `MAS_TMUX_MOTD=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`.
+
 This also matters for Claude Code's login. Over a plain SSH session the macOS keychain is locked, so `claude` would say it isn't logged in. The tmux session starts in the Mac's desktop session at login, where the keychain is unlocked, so `claude` works inside it. macOS keeps the keychain's locked or unlocked state **per login session**: auto-login unlocks it for the desktop (and tmux), but every SSH login starts with it locked. So each SSH login unlocks it for itself (a line in `~/.zprofile` runs `ai-keychain-unlock --login`):
 - **With password-free admin (agent mode),** it does it silently, using the auto-login password macOS already keeps in `/etc/kcpassword` (readable only with admin rights). No new copy of the password is made, and it reaches the keychain through standard input, never a command line.
 - **Otherwise** it asks for your Mac password once per SSH login (press Enter to skip).

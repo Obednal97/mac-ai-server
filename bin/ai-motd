@@ -1,6 +1,8 @@
 #!/bin/bash
-# Welcome screen shown on SSH login (from ~/.zprofile). Run it any time with: ai-motd
-export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+# Welcome screen: on SSH login (from ~/.zprofile) and in every new tmux window or pane (from ~/.zshrc).
+# Inside tmux it also says so and explains tmux's keys. Run it any time with: ai-motd
+# Multi-user mode shares a copy with every account (/usr/local/bin/ai-motd); a copy in ~/.local/bin wins.
+export PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$HOME/.local/bin:$PATH"   # MAS_BREW_PREFIX: tests
 b=$'\033[1m'; d=$'\033[2m'; c=$'\033[36m'; g=$'\033[32m'; y=$'\033[33m'; r=$'\033[0m'
 
 NAME="$(scutil --get LocalHostName 2>/dev/null)"
@@ -9,10 +11,18 @@ FREE="$(df -h / | awk 'NR==2{print $4}')"
 UP="$(uptime | sed -E 's/.*up +//; s/, +[0-9]+ users?.*//; s/,$//')"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"
 LOADED="$(ollama ps 2>/dev/null | awk 'NR>1{print $1}' | paste -sd, -)"
+# The Mac's owner has the background tmux session with Remote Control (local.ai-tmux) and mac-ai-server.
+OWNER=0; [ -f "$HOME/Library/LaunchAgents/local.ai-tmux.plist" ] && OWNER=1
+
+# back <tmux server> <session>: the command that goes (back) into that session
+back() { if [ "$1" = default ]; then printf 'tmux new -As %s' "$2"; else printf 'tmux -L %s new -As %s' "$1" "$2"; fi; }
 
 SQUAD=""
 command -v claude-squad >/dev/null 2>&1 && [ -x "$HOME/.local/bin/cs" ] &&
   SQUAD="  ${c}cs${r}              several Claude Code sessions side by side ${d}(Claude Squad; same list from any device)${r}
+"
+MAS=""
+[ "$OWNER" = 1 ] && MAS="  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update · models · help
 "
 
 printf '\n  %s%s%s  %s·  up %s  ·  %s free%s\n' "$b" "$NAME" "$r" "$d" "$UP" "$FREE" "${TS:+  ·  tailscale $TS}$r"
@@ -21,41 +31,70 @@ cat <<EOF
   ${c}claude${r}          Claude Code with Anthropic's models ${d}(best quality)${r}
   ${c}claude-local${r}    Claude Code on this Mac's model ${d}(private, offline, slower)${r}
   ${c}chat${r}            quick chat with the local model
-${SQUAD}  ${c}mac-ai-server${r}   doctor ${d}(check everything)${r} · update · models · help
-
+${SQUAD}${MAS}
   ${d}Both claude commands share projects, memory and history.${r}
   ${d}Switch any time: run either one with${r} --continue ${d}in a project folder.${r}
-
-  ${c}tmux -L ssh new -As work${r}   keep work running after you disconnect ${d}(Ctrl-b d to detach)${r}
 EOF
 
-# Context-sensitive hints
-if tmux -L ssh has-session 2>/dev/null; then
-  printf '  %s↳ tmux is running: %s%s\n' "$g" "$(tmux -L ssh ls -F '#S' 2>/dev/null | paste -sd, -)" "$r"
+if [ -n "${TMUX:-}" ]; then
+  # Inside tmux: which session this is, its keys, and how to come back to it
+  SERVER="$(basename "${TMUX%%,*}")"
+  SESSION="$(tmux display-message -p '#S' 2>/dev/null)"; SESSION="${SESSION:-work}"
+  # keys <key> <what> <key> <what> <key> <what>: one row of the key table, in columns
+  keys() { printf "    ${c}%s${r}  %-30s ${c}%s${r}  %-16s ${c}%s${r}  %s\n" "$@"; }
+  cat <<EOF
+
+  ${g}You're in tmux${r} ${d}(session${r} $SESSION${d}).${r} What you run here keeps going after you disconnect.
+  ${d}Keys: press${r} Ctrl-b${d}, let go, then one of these:${r}
+EOF
+  keys d "leave tmux (it keeps running)" c "new window" "n p" "next / previous window"
+  keys w "pick a window or session" % "split sideways" '"' "split top / bottom"
+  keys '[' "scroll back (q stops)" x "close this pane" '?' "every key"
+  cat <<EOF
+  ${d}The mouse works too: click a window or pane, drag the edges, scroll.${r}
+  ${d}Back in after leaving:${r} $(back "$SERVER" "$SESSION") ${d}(new SSH logins come straight back here)${r}
+EOF
+else
+  # Outside tmux (before SSH logins attach, or after leaving tmux): how to get back in
+  printf '\n  %s%s%s   keep work running after you disconnect %s(Ctrl-b d to leave it)%s\n' \
+    "$c" "$(back ssh work)" "$r" "$d" "$r"
+  RUNNING="$(tmux -L ssh ls -F '#S' 2>/dev/null | paste -sd, -)"
+  [ -n "$RUNNING" ] && printf '  %s↳ tmux is running: %s. Back in: %s%s\n' "$g" "$RUNNING" "$(back ssh "${RUNNING%%,*}")" "$r"
+  # Sessions on tmux's default server too (the owner's Remote Control session lives there as "main")
+  OTHER="$(tmux ls -F '#S' 2>/dev/null | grep -v '^claudesquad_' | paste -sd, -)"
+  [ -n "$OTHER" ] && printf '  %s↳ also running: %s %s(tmux attach -t <name>)%s\n' "$d" "$OTHER" "$d" "$r"
 fi
+
 if [ -n "$MODEL" ]; then
   if [ -n "$LOADED" ]; then STATUS="$LOADED (loaded, ready)"; else STATUS="$MODEL (loads on first use, ~10s)"; fi
   printf '\n  %sLocal model: %s%s\n' "$d" "$STATUS" "$r"
 else
-  printf '\n  %sNo local model installed yet. Run: mac-ai-server install --only models%s\n' "$y" "$r"
+  printf '\n  %sNo local model installed yet.%s%s\n' "$y" "$( [ "$OWNER" = 1 ] && printf ' Run: mac-ai-server install --only models')" "$r"
 fi
 LOGGED_IN=1; TRUSTED=0
-security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ] || LOGGED_IN=0
-python3 -c 'import json,os,sys; p=json.load(open(os.path.expanduser("~/.claude.json"))).get("projects",{}); sys.exit(0 if p.get(os.path.expanduser("~/projects"),{}).get("hasTrustDialogAccepted") else 1)' 2>/dev/null && TRUSTED=1
-if [ "$LOGGED_IN" = 0 ]; then
-  printf '  %sClaude Code: not logged in yet. Run: tmux new -As main, then claude, and follow the login link.%s\n' "$y" "$r"
-elif [ "$TRUSTED" = 0 ]; then
-  printf '  %sRemote Control (use Claude Code from your phone): one-time setup, run  cd ~/projects && claude  and accept the prompt.%s\n' "$y" "$r"
+security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ] \
+  || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || LOGGED_IN=0
+if [ "$OWNER" = 0 ]; then
+  [ "$LOGGED_IN" = 0 ] && printf '  %sClaude Code: not logged in yet. Run claude and follow the login link, with your own Claude account.%s\n' "$y" "$r"
 else
-  # Most recent status line in the Remote Control window (an unanswered prompt ends in "[y/N]")
-  RC="$(tmux capture-pane -p -t main:remote 2>/dev/null | grep -E '\[y/N\] *$|Connected|stopped|Error' | tail -1)"
-  if printf '%s' "$RC" | grep -q '\[y/N\] *$'; then
-    printf '  %sRemote Control is waiting for one confirmation: run  tmux attach -t main:remote  and type y, then Ctrl-b d.%s\n' "$y" "$r"
-  elif printf '%s' "$RC" | grep -q 'Connected'; then
-    printf '  %sRemote Control: on. Start sessions here from the Claude app or claude.ai/code.%s\n' "$d" "$r"
+  python3 -c 'import json,os,sys; p=json.load(open(os.path.expanduser("~/.claude.json"))).get("projects",{}); sys.exit(0 if p.get(os.path.expanduser("~/projects"),{}).get("hasTrustDialogAccepted") else 1)' 2>/dev/null && TRUSTED=1
+  if [ "$LOGGED_IN" = 0 ]; then
+    printf '  %sClaude Code: not logged in yet. Run: tmux new -As main, then claude, and follow the login link.%s\n' "$y" "$r"
+  elif [ "$TRUSTED" = 0 ]; then
+    printf '  %sRemote Control (use Claude Code from your phone): one-time setup, run  cd ~/projects && claude  and accept the prompt.%s\n' "$y" "$r"
   else
-    printf '  %sRemote Control: starting (check with  tmux attach -t main:remote).%s\n' "$d" "$r"
+    # Most recent status line in the Remote Control window (an unanswered prompt ends in "[y/N]")
+    RC="$(tmux -L default capture-pane -p -t main:remote 2>/dev/null | grep -E '\[y/N\] *$|Connected|stopped|Error' | tail -1)"
+    if printf '%s' "$RC" | grep -q '\[y/N\] *$'; then
+      printf '  %sRemote Control is waiting for one confirmation: run  tmux attach -t main:remote  and type y, then Ctrl-b d.%s\n' "$y" "$r"
+    elif printf '%s' "$RC" | grep -q 'Connected'; then
+      printf '  %sRemote Control: on. Start sessions here from the Claude app or claude.ai/code.%s\n' "$d" "$r"
+    else
+      printf '  %sRemote Control: starting (check with  tmux attach -t main:remote).%s\n' "$d" "$r"
+    fi
   fi
 fi
+command -v mas-syncthing >/dev/null 2>&1 && [ -f "$HOME/Library/Application Support/Syncthing/config.xml" ] && [ "$OWNER" = 0 ] &&
+  printf '  %sSyncthing: mas-syncthing status · on · off · restart · web%s\n' "$d" "$r"
 [ -f "$HOME/WELCOME.txt" ] && printf '  %sMore: cat ~/WELCOME.txt%s\n' "$d" "$r"
 printf '\n'

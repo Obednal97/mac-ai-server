@@ -15,6 +15,21 @@ mas_sanitize_host() {
     | sed -e 's/^-*//' -e 's/-*$//'
 }
 
+# mas_tmux_welcome_block: the ~/.zshrc block that starts every new tmux window or pane with the welcome
+# screen (ai-motd), for the owner (60-claude) and everyone added with `users add`. Not in Claude Squad's
+# sessions, and only for an interactive shell on a terminal (never scripts or Claude Code's own shells).
+mas_tmux_welcome_block() {
+  cat <<'BLOCK'
+
+# mac-ai-server: tmux welcome
+# A new tmux window or pane starts with the welcome screen and tmux's keys. To stop it, delete this block.
+if [ -n "${TMUX:-}" ] && [[ -o interactive ]] && [ -t 1 ] && command -v ai-motd >/dev/null 2>&1; then
+  case "$(tmux display-message -p '#S' 2>/dev/null)" in claudesquad_*) ;; *) ai-motd ;; esac
+fi
+# mac-ai-server: tmux welcome end
+BLOCK
+}
+
 # mas_mu_dropin: the machine-wide Claude Code settings that share the owner's plugins (85-multiuser).
 mas_mu_dropin() { printf '%s' "${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"; }
 
