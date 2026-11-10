@@ -227,6 +227,19 @@ echo '# x' > "$HOME/.zprofile"
 runfn mod_check "${PLAN[@]}"
 assert_eq "$?" 1 "check fails without zprofile block"
 
+# --- Claude Code's rating prompts: off for every account by default, MAS_FEEDBACK_SURVEY=yes leaves them on
+SURVEY="$MAS_SYSROOT/Library/Application Support/ClaudeCode/managed-settings.d/60-mac-ai-server-no-survey.json"
+runfn mod_run "${PLAN[@]}"
+assert_eq "$(jget "$SURVEY" env CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY)" 1 "rating prompts off machine-wide"
+assert_eq "$(stat -f %Lp "$SURVEY")" 644 "every account can read it"
+echo '{}' > "$SURVEY"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 1 "check fails when it's been changed"
+assert_ok "names the fix" has "rating prompts .* — run: mac-ai-server install --only claude"
+runfn mod_run "${PLAN[@]}" MAS_FEEDBACK_SURVEY=yes
+assert_fails "MAS_FEEDBACK_SURVEY=yes removes it" test -e "$SURVEY"
+runfn mod_run "${PLAN[@]}"
+
 # --- multi-user: shared claude-local and chat, kept in step with the owner's, removed when turned off
 runfn mod_run "${PLAN[@]}"
 assert_fails "no shared copies by default" test -e "$SYSBIN/claude-local"

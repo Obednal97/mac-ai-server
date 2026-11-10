@@ -9,6 +9,9 @@ _mas_cl_agent() { printf '%s' "$HOME/Library/LaunchAgents/local.ai-tmux.plist"; 
 _mas_cl_have() { command -v claude >/dev/null 2>&1 || [ -x "$(_mas_cl_bin)/claude" ]; }
 # Multi-user: shared copies of claude-local and chat for every account (one Ollama, one set of models).
 _mas_cl_sysbin() { printf '%s' "${MAS_SYSROOT:-}/usr/local/bin"; }
+# Claude Code's "How is Claude doing?" rating prompts, off for every account (machine-wide settings)
+_mas_cl_survey() { printf '%s' "${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/60-mac-ai-server-no-survey.json"; }
+_MAS_CL_NOSURVEY='{"env":{"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY":"1"}}'
 # Optional keychain-free login from `claude setup-token` (mac-ai-server token set).
 _mas_cl_token() { printf '%s' "$HOME/.mac-ai-server/claude-token"; }
 _mas_cl_logged_in() {
@@ -96,6 +99,16 @@ mod_run() {
     local shared="${MAS_SYSROOT:-}/Library/Application Support/ClaudeCode/managed-settings.d/50-mac-ai-server-shared.json"
     [ -f "$shared" ] && sudo rm -f "$shared"
     [ -d "${MAS_SYSROOT:-}/Library/Application Support/mac-ai-server/shared-claude" ] && sudo rm -rf "${MAS_SYSROOT:-}/Library/Application Support/mac-ai-server/shared-claude"
+  fi
+  local survey; survey="$(_mas_cl_survey)"
+  if [ "${MAS_FEEDBACK_SURVEY:-no}" = yes ]; then
+    [ -f "$survey" ] && sudo rm -f "$survey"
+  elif [ "$(cat "$survey" 2>/dev/null)" != "$_MAS_CL_NOSURVEY" ]; then
+    if sudo mkdir -p "$(dirname "$survey")" && printf '%s\n' "$_MAS_CL_NOSURVEY" | sudo tee "$survey" >/dev/null && sudo chmod 644 "$survey"; then
+      echo "Claude Code's rating prompts are off for every account."
+    else
+      mas_warn "Couldn't turn off Claude Code's rating prompts ($survey)."; rc=1
+    fi
   fi
   # The everyday command: ~/.local/bin/mac-ai-server -> this checkout's mac-ai-server.
   [ -f "$MAS_MOD_ROOT/mac-ai-server" ] && ln -sfn "$MAS_MOD_ROOT/mac-ai-server" "$bin/mac-ai-server"
@@ -244,6 +257,10 @@ mod_check() {
   fi
   if ! grep -q '# mac-ai-server: term' "$HOME/.zshrc" 2>/dev/null; then
     echo "fail unknown terminal types (like Ghostty's) aren't handled, so tmux may refuse to start — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if [ "${MAS_FEEDBACK_SURVEY:-no}" != yes ] && [ "$(cat "$(_mas_cl_survey)" 2>/dev/null)" != "$_MAS_CL_NOSURVEY" ]; then
+    echo "fail Claude Code's rating prompts (\"How is Claude doing?\") aren't turned off — run: mac-ai-server install --only claude"
     return 1
   fi
   if ! security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 \
