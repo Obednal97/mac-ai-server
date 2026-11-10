@@ -14,7 +14,7 @@ You set up macOS, install Claude Code and ask Claude to set up the Mac. Claude r
   - `claude-local`: the same Claude Code running on your Mac's own model;
   - `chat`: a quick terminal chat with the local model.
 
-  Both `claude` commands share projects, memory and history.
+  Both `claude` commands share projects, memory and history. Claude Code's "How is Claude doing?" rating prompts are switched off for every account (`MAS_FEEDBACK_SURVEY=yes` in `~/.mac-ai-server/config.env` keeps them).
 - **Use it from your phone.** Remote Control lets you start and steer Claude Code sessions on this Mac from the Claude app.
 - **Reach it from anywhere** (optional): [Tailscale](https://tailscale.com) gives you a private network between your devices, and nothing is exposed to the internet. SSH and Screen Sharing are switched on too.
 - **It looks after itself.**
