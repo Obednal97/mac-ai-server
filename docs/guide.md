@@ -264,6 +264,7 @@ These go in `~/.mac-ai-server/config.env`, one `NAME=value` per line. The defaul
 | `MAS_DEV_TOOLS` | `"node pnpm uv git gh jq ripgrep"` | Homebrew developer tools. Empty means none. |
 | `MAS_AGENT_MODE` | `no` | Passwordless admin plus no permission prompts. |
 | `MAS_TMUX_ATTACH` | `yes` | SSH logins go straight into the tmux session `work`. |
+| `MAS_TMUX_MAIN` | `yes` | The background tmux session `main`, with Remote Control, starts at login. `no` if something else on the Mac does that job. |
 | `MAS_TMUX_MOTD` | `yes` | Every new tmux window or pane starts with the welcome screen and tmux's keys. |
 | `MAS_HANDOVER` | `no` | You plan to hand this Mac to someone else. |
 | `MAS_REMOVE_APPS` | `no` | `yes` deletes GarageBand, iMovie, Keynote, Numbers and Pages. |

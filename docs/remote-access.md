@@ -20,6 +20,7 @@ How it's set up:
 - **A background session.** A tmux session called `main` starts when the Mac logs in.
 - **The Remote Control window.** Inside it, a window called `remote` runs `claude remote-control`, and restarts it every 60 seconds if it stops.
 - **It survives restarts.** Because the Mac logs itself in after a power cut, Remote Control comes back on its own.
+- **To turn it off** (say another tool now runs your phone sessions): `MAS_TMUX_MAIN=no` in `~/.mac-ai-server/config.env`, then `mac-ai-server install --only claude`. `main` then no longer starts at login; one that's already running keeps going until you end it or log out. The welcome screen drops its Remote Control lines.
 
 **One-time setup.** Remote Control has to trust the projects folder twice, which surprised us too:
 1. In Terminal, run `cd ~/projects && claude`, accept the trust prompt, and type `/exit`.

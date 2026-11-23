@@ -375,6 +375,55 @@ runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 "PATH=$TL:$SAFE_PATH" TMUX=
 assert_eq "$?" 0 "not probed from inside tmux"
 rm -rf "$HOME/Library/Keychains"
 
+# --- MAS_TMUX_MAIN=no: no background tmux session `main` (e.g. another tool replaced Remote Control)
+AG="$HOME/Library/LaunchAgents/local.ai-tmux.plist"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_ok "default: agent installed" test -f "$AG"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no
+assert_eq "$?" 0 "main off: run ok"
+assert_fails "main off: agent plist removed" test -e "$AG"
+assert_not_logged '^launchctl (bootout|bootstrap) gui/[0-9]+/?.*local.ai-tmux'   # never takes a live session down
+assert_ok "main off: says so" has "no longer starts at login"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no
+assert_fails "main off: re-run doesn't put it back" test -e "$AG"
+assert_fails "main off: re-run says nothing about it" has "no longer starts at login"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no
+assert_eq "$?" 0 "main off, no agent: check passes"
+assert_fails "main off: ok line doesn't claim a tmux agent" has "tmux agent"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
+assert_eq "$?" 1 "default, no agent: check still fails"
+touch "$AG"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no
+assert_eq "$?" 1 "main off but agent still there: check fails"
+assert_ok "names the fix" has "^fail .*MAS_TMUX_MAIN=no.* — run: mac-ai-server install --only claude"
+rm -f "$AG"
+# not logged in: the hints don't send people to `main`
+mv "$HOME/.claude/.credentials.json" "$T_TMP/creds"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no "$LOGGED_OUT"
+assert_ok "main off: login action says run claude" has "run: claude (follow the login link)"
+assert_fails "main off: login action doesn't mention main" has "tmux new -As main"
+runfn mod_check "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no "$LOGGED_OUT"
+assert_ok "main off: login fail says run claude" has "^fail Claude Code isn't logged in — run: claude$"
+mv "$T_TMP/creds" "$HOME/.claude/.credentials.json"
+# SSH logins only kickstart the agent when it's installed; older blocks are updated in place
+OLDLINE='  tmux has-session 2>/dev/null || { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }'
+assert_ok "new ssh block: kickstart guarded by the agent" grep -qF '[ -f ~/Library/LaunchAgents/local.ai-tmux.plist ] && ! tmux has-session' "$HOME/.zprofile"
+sed -i '' 's|^  \[ -f ~/Library/LaunchAgents/local.ai-tmux.plist \] && .*kickstart.*$|'"$(printf '%s' "$OLDLINE" | sed 's/[&|]/\\&/g')"'|' "$HOME/.zprofile"
+assert_ok "old line in place for the migration test" grep -qxF "$OLDLINE" "$HOME/.zprofile"
+runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 MAS_TMUX_MAIN=no
+assert_fails "old kickstart line replaced" grep -qxF "$OLDLINE" "$HOME/.zprofile"
+assert_eq "$(grep -c 'local.ai-tmux.plist \] && ! tmux has-session' "$HOME/.zprofile")" 1 "guarded line once"
+assert_ok "zprofile still parses" zsh -n "$HOME/.zprofile"
+# the welcome screen: the owner without `main` still gets mac-ai-server, but no Remote Control or `main` hints
+rm -f "$OTHER_HOME/Library/LaunchAgents/local.ai-tmux.plist"
+mkdir -p "$OTHER_HOME/.local/bin"; ln -sf /usr/bin/true "$OTHER_HOME/.local/bin/mac-ai-server"
+owner_nomain="$(motd)"
+assert_ok "owner without main: mac-ai-server listed" grep -q 'mac-ai-server   doctor' <<< "$owner_nomain"
+assert_fails "owner without main: no Remote Control lines" grep -q 'Remote Control' <<< "$owner_nomain"
+assert_fails "owner without main: no main:remote" grep -q 'main:remote' <<< "$owner_nomain"
+assert_ok "owner without main, logged out: plain login hint" grep -q 'not logged in yet. Run claude and follow the login link' <<< "$(motd "PATH=$AM:$NOSEC:$SAFE_PATH")"
+rm -f "$OTHER_HOME/.local/bin/mac-ai-server"
+
 rm -f "$BIN/claude"
 runfn mod_check "${PLAN[@]}"
 assert_eq "$?" 1 "check fails without claude"
