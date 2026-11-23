@@ -180,6 +180,7 @@ runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$(stat -f %Lp "$BIN/claude-local") $(stat -f %Lp "$BIN/chat")" "755 755" "modes repaired without rewriting"
 # a changed script is replaced by rename (new inode), so a running copy is never read half-written
 ino="$(stat -f %i "$BIN/ai-motd")"; echo '# old' > "$BIN/ai-motd"
+shasum -a 256 < "$BIN/ai-motd" | cut -d' ' -f1 > "$HOME/.mac-ai-server/installed/ai-motd"   # an older version we wrote, not an edit
 runfn mod_run "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1
 assert_ok "changed script updated" cmp -s "$REPO_DIR/bin/ai-motd" "$BIN/ai-motd"
 assert_fails "changed script replaced by rename, not rewritten in place" test "$(stat -f %i "$BIN/ai-motd")" = "$ino"
@@ -423,6 +424,63 @@ assert_fails "owner without main: no Remote Control lines" grep -q 'Remote Contr
 assert_fails "owner without main: no main:remote" grep -q 'main:remote' <<< "$owner_nomain"
 assert_ok "owner without main, logged out: plain login hint" grep -q 'not logged in yet. Run claude and follow the login link' <<< "$(motd "PATH=$AM:$NOSEC:$SAFE_PATH")"
 rm -f "$OTHER_HOME/.local/bin/mac-ai-server"
+# --- scripts you've edited are kept on update (the new version goes beside them as <name>.new)
+# A throwaway copy of the repo with its own git history, so "an older version" is under the test's control.
+FIX="$T_TMP/repo"; mkdir -p "$FIX"
+(cd "$REPO_DIR" && tar cf - --exclude .git .) | (cd "$FIX" && tar xf -)
+G() { git -C "$FIX" -c user.name=t -c user.email=t@x "$@" >/dev/null 2>&1; }
+G init -q; G add -A; G commit -qm v1
+H2="$T_TMP/home2"; B2="$H2/.local/bin"; mkdir -p "$B2"; printf '#!/bin/sh\n' > "$B2/claude"; chmod +x "$B2/claude"
+touch "$H2/.zprofile" "$H2/.zshrc"
+SAVED_MOD="$MOD"; MOD="$FIX/modules/60-claude.sh"
+run2() { runfn "$@" "${PLAN[@]}" FAKE_LAUNCHCTL_LOADED=1 HOME="$H2"; }
+newver() { printf '# %s\n' "$1" >> "$FIX/bin/claude-local"; printf '# %s\n' "$1" >> "$FIX/bin/ai-motd"; G commit -qam "$1"; }
+run2 mod_run
+assert_ok "fresh install: claude-local written" grep -qF 'big:30b-x' "$B2/claude-local"
+assert_fails "fresh install: no .new" test -e "$B2/claude-local.new"
+# unedited + a new version: replaced, as before
+newver v2; run2 mod_run
+assert_ok "unedited: updated" grep -qx '# v2' "$B2/claude-local"
+# edited + a new version: kept, new version beside it, warned with the command to take it
+echo '# my own tuning' >> "$B2/claude-local"
+newver v3; run2 mod_run
+assert_eq "$?" 0 "edited: run still ok"
+assert_ok "edited: own changes kept" grep -qx '# my own tuning' "$B2/claude-local"
+assert_fails "edited: not updated" grep -qx '# v3' "$B2/claude-local"
+assert_ok "edited: new version beside it" grep -qx '# v3' "$B2/claude-local.new"
+assert_ok "edited: .new is runnable once moved" test -x "$B2/claude-local.new"
+assert_ok "edited: warns with the command" has "mv $B2/claude-local.new $B2/claude-local"
+assert_ok "other scripts still updated" grep -qx '# v3' "$B2/ai-motd"
+run2 mod_check
+assert_ok "doctor mentions the kept file" has "^info $B2/claude-local has changes of your own"
+newver v4; run2 mod_run
+assert_ok "edited: still kept on the next update" grep -qx '# my own tuning' "$B2/claude-local"
+assert_ok "edited: .new refreshed" grep -qx '# v4' "$B2/claude-local.new"
+# taking the new version: it counts as unedited again, and the .new and doctor line go
+mv "$B2/claude-local.new" "$B2/claude-local"
+run2 mod_run
+assert_fails "taken: .new gone" test -e "$B2/claude-local.new"
+newver v5; run2 mod_run
+assert_ok "taken: updated again" grep -qx '# v5' "$B2/claude-local"
+run2 mod_check
+assert_fails "doctor: no kept-file line" has "changes of your own"
+# installs from before the record: matching any past version counts as unedited
+G checkout -q HEAD~2 -- bin/claude-local
+sed -e 's|__MODEL__|big:30b-x|g' -e 's|__CONTEXT__|49152|g' "$FIX/bin/claude-local" > "$B2/claude-local"
+G checkout -q HEAD -- bin/claude-local
+rm -rf "$H2/.mac-ai-server/installed"
+run2 mod_run
+assert_ok "no record, an old version: updated" grep -qx '# v5' "$B2/claude-local"
+assert_fails "no record, an old version: no .new" test -e "$B2/claude-local.new"
+rm -rf "$H2/.mac-ai-server/installed"; echo '# hand-made' >> "$B2/claude-local"
+run2 mod_run
+assert_ok "no record, edited: kept" grep -qx '# hand-made' "$B2/claude-local"
+assert_ok "no record, edited: .new written" test -f "$B2/claude-local.new"
+# not a git checkout (no history to ask): anything that differs counts as edited
+rm -rf "$FIX/.git" "$H2/.mac-ai-server/installed" "$B2/claude-local.new"; echo '# v6' >> "$FIX/bin/claude-local"
+run2 mod_run
+assert_ok "no git: kept" grep -qx '# hand-made' "$B2/claude-local"
+MOD="$SAVED_MOD"
 
 rm -f "$BIN/claude"
 runfn mod_check "${PLAN[@]}"

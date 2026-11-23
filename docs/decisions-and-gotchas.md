@@ -84,6 +84,12 @@ Each entry says what we found and what we decided.
 
   The Homebrew service is stopped and its plist removed.
 
+### Your own changes to the installed scripts
+- **Found:** the installer rewrote `claude-local`, `chat`, `ai-motd` and the other scripts in `~/.local/bin` whenever they differed from the repo, so an update silently wiped changes people had made to them (tuning `claude-local` for a small context window, say).
+- **Decision:**
+  - `~/.mac-ai-server/installed/<name>` keeps a hash of what the installer last wrote. A script that still matches is replaced on update; one that doesn't is kept, with the new version beside it as `<name>.new` and a warning that gives the `mv` to take it. `doctor` lists kept ones as `info`.
+  - Installs from before the hash file: a script counts as unedited if it matches any past version in the checkout's git history (with this plan's model and context filled in). Without git history, anything that differs is kept.
+
 ### Reloading services
 - **Found:** `launchctl bootout` is asynchronous. An immediate `bootstrap` failed with error 5 and left Ollama stopped.
 - **Decision:** `mas_reload_agent` waits until the old job is gone, then retries `bootstrap`.
