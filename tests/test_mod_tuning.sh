@@ -74,8 +74,23 @@ FAKE_OUT_sysctl="iogpu.wired_limit_mb: 0" runfn "$TUNE" mod_check MAS_GPU_LIMIT_
 assert_eq "$?" 1 "tuning check fails on wrong limit"
 assert_ok "fail has a fix" has "fail .* — "
 rm -f "$MPLIST"
-FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
-assert_eq "$?" 1 "tuning check fails without maxfiles daemon"
+FAKE_OUT_launchctl=$'\tmaxfiles    256            unlimited' FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
+assert_eq "$?" 1 "tuning check fails without maxfiles daemon and a low limit"
+assert_ok "low limit: fail with a fix" grep -q "^fail open-file limit daemon is missing .* — run: mac-ai-server install" "$OUT"
+
+# --- daemons missing but the limits are in effect (something else on this Mac sets them): info, not fail
+rm -f "$GPLIST" "$MPLIST"
+FAKE_OUT_launchctl=$'\tmaxfiles    65536          unlimited' FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
+assert_eq "$?" 0 "limits in effect without our daemons: check passes"
+assert_fails "no fail lines" grep -q "^fail" "$OUT"
+assert_ok "gpu: info says something else sets it" grep -q "^info GPU limit daemon is not installed, but the limit is 40960 MB" "$OUT"
+assert_ok "maxfiles: info says something else sets it" grep -q "^info open-file limit daemon is not installed, but the limit is 65536" "$OUT"
+FAKE_OUT_launchctl=$'\tmaxfiles    unlimited      unlimited' FAKE_OUT_sysctl="$GOOD" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
+assert_eq "$?" 0 "unlimited soft limit counts as high enough"
+# gpu daemon missing and the limit is wrong: still a fail
+FAKE_OUT_launchctl=$'\tmaxfiles    65536          unlimited' FAKE_OUT_sysctl="iogpu.wired_limit_mb: 0" runfn "$TUNE" mod_check MAS_GPU_LIMIT_MB=40960
+assert_eq "$?" 1 "gpu daemon missing and limit wrong: check fails"
+assert_ok "gpu: fail with a fix" grep -q "^fail GPU limit daemon is missing — run: mac-ai-server install" "$OUT"
 
 # --- agent mode
 runfn "$AGENT" mod_applies MAS_AGENT_MODE=no

@@ -136,6 +136,7 @@ Each entry says what we found and what we decided.
 ### GPU memory limit
 - **Found:** macOS lets the GPU use only about 75% of memory by default.
 - **Decision:** the limit is RAM minus a reserve: 4 GB at 16, 6 at 24, 8 at 32 to 64, 10 at 96 and 12 at 128. It's computed at install time and re-applied at boot by a LaunchDaemon. The open-file limit is raised to 65,536 too, because the default 256 is too low for agents.
+- **Decision:** `doctor` checks the limits themselves. A missing daemon with the limit already in effect is an `info` line, because something else on the Mac (the owner's own boot script, say) may set it.
 
 ### Apple Intelligence
 - **Found:** macOS 27 has no off switch for it. Its model service held about 1.2 GB but sat at 0% CPU.
