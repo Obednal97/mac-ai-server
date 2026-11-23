@@ -453,6 +453,13 @@ assert_ok "edited: warns with the command" has "mv $B2/claude-local.new $B2/clau
 assert_ok "other scripts still updated" grep -qx '# v3' "$B2/ai-motd"
 run2 mod_check
 assert_ok "doctor mentions the kept file" has "^info $B2/claude-local has changes of your own"
+# multi-user: other accounts get the repo's version, never the owner's own edits
+run2 mod_run MAS_MULTIUSER=yes
+assert_fails "shared copy: not the owner's edits" grep -qx '# my own tuning' "$SYSBIN/claude-local"
+assert_ok "shared copy: the repo's version" cmp -s "$B2/claude-local.new" "$SYSBIN/claude-local"
+run2 mod_check MAS_MULTIUSER=yes
+assert_fails "shared copy: doctor doesn't call it stale" has "fail The shared claude-local"
+run2 mod_run MAS_MULTIUSER=no
 newver v4; run2 mod_run
 assert_ok "edited: still kept on the next update" grep -qx '# my own tuning' "$B2/claude-local"
 assert_ok "edited: .new refreshed" grep -qx '# v4' "$B2/claude-local.new"

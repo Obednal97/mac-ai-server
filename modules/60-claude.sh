@@ -111,9 +111,11 @@ mod_run() {
   for f in claude-local chat; do _mas_cl_render "$f" "$MAS_MOD_ROOT/bin/$f" > "$tmp" && _mas_cl_put "$f" "$tmp" "$bin/$f"; done
   local sysbin; sysbin="$(_mas_cl_sysbin)"
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
+    # From the repo, not the owner's copy, which may have changes of their own
     for f in claude-local chat; do
-      cmp -s "$bin/$f" "$sysbin/$f" && continue
-      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$bin/$f" "$sysbin/$f"; }; then
+      _mas_cl_render "$f" "$MAS_MOD_ROOT/bin/$f" > "$tmp" || { rc=1; continue; }
+      cmp -s "$tmp" "$sysbin/$f" && continue
+      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$tmp" "$sysbin/$f"; }; then
         mas_warn "Couldn't install $sysbin/$f for the other accounts."; rc=1
       fi
     done
@@ -328,7 +330,7 @@ mod_check() {
   fi
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
     for n in claude-local chat; do
-      if ! cmp -s "$bin/$n" "$(_mas_cl_sysbin)/$n"; then
+      if ! _mas_cl_render "$n" "$MAS_MOD_ROOT/bin/$n" | cmp -s - "$(_mas_cl_sysbin)/$n"; then
         echo "fail The shared $n for other accounts is missing or out of date — run: mac-ai-server install --only claude"
         return 1
       fi
