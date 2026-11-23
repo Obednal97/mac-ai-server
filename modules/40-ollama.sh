@@ -16,6 +16,9 @@ _mas_oll_bin() { readlink -f "${MAS_BREW_PREFIX:-/opt/homebrew}/opt/ollama/bin/o
 # _mas_oll_fw_ok <file>: the firewall lists it as allowed. Not --getappblocked, which says "permitted"
 # for files it has never seen.
 _mas_oll_fw_ok() { [ -n "$1" ] && "$(_mas_oll_fw)" --listapps 2>/dev/null | grep -A1 -F " : $1 " | grep -q 'Allow incoming'; }
+_mas_oll_fw_off() { "$(_mas_oll_fw)" --getglobalstate 2>/dev/null | grep -q 'disabled'; }
+# Only another computer can test the firewall: a connection from this Mac to itself doesn't pass through it.
+_mas_oll_lan_test() { printf 'from another computer, run: curl http://%s:11434/api/version' "$(_mas_oll_addr)"; }
 # The address other computers on the home network use (Ethernet, else Wi-Fi)
 _mas_oll_addr() {
   local a; a="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
@@ -43,7 +46,9 @@ mod_run() {
     bin="$(_mas_oll_bin)"
     if _mas_oll_fw_ok "$bin"; then :
     elif [ -n "$bin" ] && sudo "$(_mas_oll_fw)" --add "$bin" >/dev/null && sudo "$(_mas_oll_fw)" --unblockapp "$bin" >/dev/null; then
-      echo "Firewall: other computers may now connect to Ollama."
+      # macOS can report success and list nothing (seen on macOS 27 with Homebrew's unsigned build).
+      if _mas_oll_fw_ok "$bin"; then echo "Firewall: other computers may now connect to Ollama."
+      else mas_warn "The firewall said yes but didn't add Ollama to its list. It may still let other computers in. To test, $(_mas_oll_lan_test). If that fails, allow Ollama at System Settings > Network > Firewall > Options."; fi
     else
       mas_warn "Couldn't let Ollama through the firewall, so other computers can't reach it. Re-run: mac-ai-server install --only ollama"
     fi
@@ -94,9 +99,8 @@ mod_check() {
     echo "ok Ollama is running on localhost:11434"
     return 0
   fi
-  if ! _mas_oll_fw_ok "$(_mas_oll_bin)"; then
-    echo "fail the firewall doesn't let other computers reach Ollama (each Ollama update needs allowing again) — run: mac-ai-server install --only ollama"
-    return 1
+  if ! _mas_oll_fw_off && ! _mas_oll_fw_ok "$(_mas_oll_bin)"; then
+    echo "info the firewall doesn't list this Ollama (each update is a new file, and macOS may refuse to list it yet still let it in); whether other computers get through can't be checked from this Mac: $(_mas_oll_lan_test)"
   fi
   echo "ok Ollama is running and open to the home network at http://$(_mas_oll_addr):11434 (no password)"
 }
