@@ -39,21 +39,53 @@ _mas_cl_drop_attach() {
 # Escape a value for the replacement side of sed (& | \).
 _mas_cl_esc() { printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'; }
 
-# _mas_cl_put <src> <dest>: install as mode 755, rewriting only when the content differs. Scripts like
-# claude-remote-loop may be running and bash reads a running script as it goes, so a changed file is
-# written to a temp file in the same folder and renamed over the old one (the old one stays intact).
+# Scripts the installer wrote are replaced on update; ones with changes of your own are kept, with the
+# new version beside them as <name>.new. ~/.mac-ai-server/installed/<name> holds the hash of what was
+# last written. Without it (installs from before), a file counts as ours if it matches a past version.
+_mas_cl_state() { printf '%s' "$HOME/.mac-ai-server/installed/$1"; }
+_mas_cl_sum() { shasum -a 256 | cut -d' ' -f1; }
+_mas_cl_render() {  # _mas_cl_render <name> <template>: the script as installed with this plan
+  case "$1" in
+    claude-local) sed -e "s|__MODEL__|$(_mas_cl_esc "$MAS_PRIMARY")|g" -e "s|__CONTEXT__|$(_mas_cl_esc "$MAS_CONTEXT")|g" "$2" ;;
+    chat) sed -e "s|__MODEL__|$(_mas_cl_esc "$MAS_PRIMARY")|g" "$2" ;;
+    *) cat "$2" ;;
+  esac
+}
+_mas_cl_unedited() {  # _mas_cl_unedited <name> <dest>
+  local sum rev t ok=1
+  sum="$(_mas_cl_sum < "$2")"
+  if [ -f "$(_mas_cl_state "$1")" ]; then [ "$sum" = "$(cat "$(_mas_cl_state "$1")")" ]; return; fi
+  t="$(mktemp "${TMPDIR:-/tmp}/mas-cl.XXXXXX")" || return 1
+  for rev in $(git -C "$MAS_MOD_ROOT" log --format=%H -- "bin/$1" 2>/dev/null); do
+    git -C "$MAS_MOD_ROOT" show "$rev:bin/$1" > "$t" 2>/dev/null || continue
+    [ "$(_mas_cl_render "$1" "$t" | _mas_cl_sum)" = "$sum" ] && { ok=0; break; }
+  done
+  rm -f "$t"; return "$ok"
+}
+
+# _mas_cl_put <name> <src> <dest>: install as mode 755, rewriting only when the content differs. Scripts
+# like claude-remote-loop may be running and bash reads a running script as it goes, so a changed file
+# is written to a temp file in the same folder and renamed over the old one (the old one stays intact).
 _mas_cl_put() {
-  local t
-  if cmp -s "$1" "$2"; then chmod 755 "$2"; return; fi
-  t="$(mktemp "$(dirname "$2")/.mas-put.XXXXXX")" || return 1
-  if cp "$1" "$t" && chmod 755 "$t" && mv -f "$t" "$2"; then return 0; fi
-  rm -f "$t"; return 1
+  local name="$1" src="$2" dest="$3" t
+  if [ -f "$dest" ] && ! cmp -s "$src" "$dest" && ! _mas_cl_unedited "$name" "$dest"; then
+    cp "$src" "$dest.new" && chmod 755 "$dest.new" || return 1
+    mas_warn "$dest has changes of your own, so it was kept. The new version is $dest.new; to take it, run: mv $dest.new $dest"
+    return 0
+  fi
+  if cmp -s "$src" "$dest"; then chmod 755 "$dest"
+  else
+    t="$(mktemp "$(dirname "$dest")/.mas-put.XXXXXX")" || return 1
+    cp "$src" "$t" && chmod 755 "$t" && mv -f "$t" "$dest" || { rm -f "$t"; return 1; }
+  fi
+  rm -f "$dest.new"
+  mkdir -p "$(dirname "$(_mas_cl_state "$name")")" && _mas_cl_sum < "$dest" > "$(_mas_cl_state "$name")"
 }
 
 mod_applies() { true; }
 
 mod_run() {
-  local bin agent rc=0 model_e ctx_e
+  local bin agent rc=0
   bin="$(_mas_cl_bin)"; agent="$(_mas_cl_agent)"
   PATH="${MAS_BREW_PREFIX:-/opt/homebrew}/bin:$bin:$PATH"; export PATH
   mas_step "Claude Code, claude-local, tmux session, welcome screen"
@@ -74,18 +106,16 @@ mod_run() {
 
   mkdir -p "$bin" "$HOME/projects" "$(dirname "$agent")"
   local f tmp
-  for f in ai-motd claude-remote-loop ai-tmux-start ai-keychain-unlock; do _mas_cl_put "$MAS_MOD_ROOT/bin/$f" "$bin/$f"; done
-  model_e="$(_mas_cl_esc "$MAS_PRIMARY")"; ctx_e="$(_mas_cl_esc "$MAS_CONTEXT")"
+  for f in ai-motd claude-remote-loop ai-tmux-start ai-keychain-unlock; do _mas_cl_put "$f" "$MAS_MOD_ROOT/bin/$f" "$bin/$f"; done
   tmp="$(mktemp "${TMPDIR:-/tmp}/mas-cl.XXXXXX")" || return 1
-  sed -e "s|__MODEL__|$model_e|g" -e "s|__CONTEXT__|$ctx_e|g" "$MAS_MOD_ROOT/bin/claude-local" > "$tmp"
-  _mas_cl_put "$tmp" "$bin/claude-local"
-  sed -e "s|__MODEL__|$model_e|g" "$MAS_MOD_ROOT/bin/chat" > "$tmp"
-  _mas_cl_put "$tmp" "$bin/chat"
+  for f in claude-local chat; do _mas_cl_render "$f" "$MAS_MOD_ROOT/bin/$f" > "$tmp" && _mas_cl_put "$f" "$tmp" "$bin/$f"; done
   local sysbin; sysbin="$(_mas_cl_sysbin)"
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
+    # From the repo, not the owner's copy, which may have changes of their own
     for f in claude-local chat; do
-      cmp -s "$bin/$f" "$sysbin/$f" && continue
-      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$bin/$f" "$sysbin/$f"; }; then
+      _mas_cl_render "$f" "$MAS_MOD_ROOT/bin/$f" > "$tmp" || { rc=1; continue; }
+      cmp -s "$tmp" "$sysbin/$f" && continue
+      if ! { sudo mkdir -p "$sysbin" && sudo install -m 755 "$tmp" "$sysbin/$f"; }; then
         mas_warn "Couldn't install $sysbin/$f for the other accounts."; rc=1
       fi
     done
@@ -300,7 +330,7 @@ mod_check() {
   fi
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
     for n in claude-local chat; do
-      if ! cmp -s "$bin/$n" "$(_mas_cl_sysbin)/$n"; then
+      if ! _mas_cl_render "$n" "$MAS_MOD_ROOT/bin/$n" | cmp -s - "$(_mas_cl_sysbin)/$n"; then
         echo "fail The shared $n for other accounts is missing or out of date — run: mac-ai-server install --only claude"
         return 1
       fi
@@ -312,5 +342,8 @@ mod_check() {
       fi
     done
   fi
+  for n in claude-local chat ai-motd claude-remote-loop ai-tmux-start ai-keychain-unlock; do
+    [ -f "$bin/$n.new" ] && echo "info $bin/$n has changes of your own, so updates keep it; the newer version is $bin/$n.new (to take it: mv $bin/$n.new $bin/$n)"
+  done
   echo "ok Claude Code, claude-local$(_mas_cl_main && echo ', tmux agent') and SSH welcome screen are set up"
 }
