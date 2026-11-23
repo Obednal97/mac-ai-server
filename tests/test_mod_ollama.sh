@@ -119,9 +119,42 @@ assert_eq "$?" 0 "home network check ok"
 assert_ok "ok line has the address" has '^ok .*http://192.168.1.20:11434'
 runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "$REAL" Allow)" FAKE_OUT_scutil=ai-mini
 assert_ok "no address: the .local name" has '^ok .*http://ai-mini.local:11434'
-runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "${REAL%/9.9/*}/9.8/libexec/ollama" Allow)"
-assert_eq "$?" 1 "check fails when only an older Ollama is allowed"
-assert_ok "firewall fail names the fix" has "fail the firewall .* — run: mac-ai-server install --only ollama"
+# not listed: macOS can refuse to list Homebrew's unsigned build and still let it through, and a connection
+# from this Mac to itself doesn't test the firewall, so it's info with a test to run elsewhere, not a fail
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="$(fwlist "${REAL%/9.9/*}/9.8/libexec/ollama" Allow)" FAKE_OUT_ipconfig=192.168.1.20
+assert_eq "$?" 0 "only an older Ollama listed: check doesn't fail"
+assert_fails "no fail line" grep -q "^fail" "$OUT"
+assert_ok "info says it can't be checked here" has "^info the firewall doesn't list this Ollama .*can't be checked from this Mac"
+assert_ok "info gives the test to run elsewhere" has "^info .*curl http://192.168.1.20:11434/api/version"
+# firewall switched off: nothing to allow
+runfn "$OLL" mod_check MAS_CONTEXT=32768 MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1 FAKE_OUT_socketfilterfw="Firewall is disabled. (State = 0)"
+assert_eq "$?" 0 "firewall off: check ok"
+assert_fails "firewall off: no info line" grep -q "^info" "$OUT"
+
+# --- mod_run says what really happened: a stateful firewall stub (MAS_FW) that can ignore --add,
+# as macOS 27 did for Homebrew's unsigned Ollama (exit 0, nothing listed)
+FWSTUB="$T_TMP/fwstub"; FWLIST="$T_TMP/fwlist"
+cat > "$FWSTUB" <<'STUB'
+#!/bin/bash
+echo "socketfilterfw $*" >> "$FAKE_LOG"
+case "$1" in
+  --listapps) [ -f "$FWLIST" ] && cat "$FWLIST" ;;
+  --add) [ -n "${FWSTUB_IGNORE_ADD:-}" ] || printf '1 : %s \n             (Allow incoming connections)\n' "$2" >> "$FWLIST" ;;
+esac
+exit 0
+STUB
+chmod +x "$FWSTUB"
+rm -f "$FWLIST"
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_ipconfig=192.168.1.20 MAS_FW="$FWSTUB" FWLIST="$FWLIST"
+assert_eq "$?" 0 "allowed for real: run ok"
+assert_ok "allowed for real: says so" has "Firewall: other computers may now connect to Ollama."
+rm -f "$FWLIST"
+runfn "$OLL" mod_run MAS_CONTEXT=32768 MAS_MODE=desktop MAS_OLLAMA_LAN=yes FAKE_OUT_curl="$VER" FAKE_OUT_ipconfig=192.168.1.20 MAS_FW="$FWSTUB" FWLIST="$FWLIST" FWSTUB_IGNORE_ADD=1
+assert_eq "$?" 0 "add ignored: run still ok (Ollama itself runs)"
+assert_fails "add ignored: doesn't claim success" has "may now connect"
+assert_ok "add ignored: says it isn't listed" has "didn't add Ollama to its list"
+assert_ok "add ignored: gives the test" has "curl http://192.168.1.20:11434/api/version"
+assert_ok "add ignored: says where to allow it by hand" has "System Settings > Network > Firewall > Options"
 runfn "$OLL" mod_check MAS_CONTEXT=32768 FAKE_OUT_curl="$VER" FAKE_LAUNCHCTL_LOADED=1
 assert_eq "$?" 1 "check fails when open but MAS_OLLAMA_LAN isn't yes"
 assert_ok "open fail names the fix" has "fail Ollama is open to the home network.* — run: mac-ai-server install --only ollama"

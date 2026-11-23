@@ -93,9 +93,12 @@ Each entry says what we found and what we decided.
   - Ollama has no password, and the same API can download and delete models.
   - Homebrew's Ollama isn't signed by a developer, so the macOS firewall blocks incoming connections to it until it's listed. Each upgrade is a new file that needs listing again.
   - `socketfilterfw --getappblocked` says "permitted" even for files the firewall has never seen.
+  - On macOS 27.0.1, `sudo socketfilterfw --add <file>` exited 0, printed nothing and listed nothing for Homebrew's ad-hoc signed Ollama (and for copies of other ad-hoc signed binaries). Other computers could still reach the unlisted Ollama. Why it lets it through isn't known.
+  - A connection from the Mac to its own address doesn't test the firewall, so only another computer can tell whether it gets through.
 - **Decision:**
   - Off by default: Ollama listens on `127.0.0.1` only. `MAS_OLLAMA_LAN=yes` sets `OLLAMA_HOST=0.0.0.0:11434` in `local.ollama` and lists the real binary behind Homebrew's link as allowed.
-  - `doctor` reads `--listapps` instead, so it notices a version that isn't listed yet.
+  - `doctor` reads `--listapps` instead, so it notices a version that isn't listed yet. Unlisted is an `info` line with the test to run from another computer, not a `fail`, because unlisted doesn't mean blocked.
+  - After allowing it, the installer reads the list back and says so when the file still isn't on it, instead of claiming success.
   - WireGuard's pf anchor already keeps tunnel users to SSH and Screen Sharing, so they can't reach it.
 
 ### MLX-LM: dropped
@@ -136,6 +139,7 @@ Each entry says what we found and what we decided.
 ### GPU memory limit
 - **Found:** macOS lets the GPU use only about 75% of memory by default.
 - **Decision:** the limit is RAM minus a reserve: 4 GB at 16, 6 at 24, 8 at 32 to 64, 10 at 96 and 12 at 128. It's computed at install time and re-applied at boot by a LaunchDaemon. The open-file limit is raised to 65,536 too, because the default 256 is too low for agents.
+- **Decision:** `doctor` checks the limits themselves. A missing daemon with the limit already in effect is an `info` line, because something else on the Mac (the owner's own boot script, say) may set it.
 
 ### Apple Intelligence
 - **Found:** macOS 27 has no off switch for it. Its model service held about 1.2 GB but sat at 0% CPU.

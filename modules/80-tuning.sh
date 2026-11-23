@@ -94,16 +94,22 @@ mod_run() {
   return "$rc"
 }
 
+# A missing daemon is only a fault when the limit isn't in effect: something else on the Mac
+# (e.g. the owner's own boot script) may set it instead.
 mod_check() {
-  local rc=0 mb="${MAS_GPU_LIMIT_MB:-}" v
+  local rc=0 mb="${MAS_GPU_LIMIT_MB:-}" v soft
   if [ -n "$mb" ] && [ "$mb" != 0 ]; then
-    if [ -f "$(_mas_tu_gpu_plist)" ]; then echo "ok GPU limit daemon is installed"
-    else echo "fail GPU limit daemon is missing — run: mac-ai-server install"; rc=1; fi
     v="$(_mas_tu_limit)"
+    if [ -f "$(_mas_tu_gpu_plist)" ]; then echo "ok GPU limit daemon is installed"
+    elif [ "$v" = "$mb" ]; then echo "info GPU limit daemon is not installed, but the limit is $mb MB: something else on this Mac sets it"
+    else echo "fail GPU limit daemon is missing — run: mac-ai-server install"; rc=1; fi
     if [ "$v" = "$mb" ]; then echo "ok GPU memory limit is $mb MB"
     else echo "fail GPU memory limit is '${v:-unknown}' MB, plan says $mb — run: sudo sysctl iogpu.wired_limit_mb=$mb"; rc=1; fi
   fi
+  soft="$(launchctl limit maxfiles 2>/dev/null | awk '{print $2}')"
   if [ -f "$(_mas_tu_max_plist)" ]; then echo "ok open-file limit daemon is installed"
-  else echo "fail open-file limit daemon is missing — run: mac-ai-server install"; rc=1; fi
+  elif [ "$soft" = unlimited ] || { [ -n "$soft" ] && [ "$soft" -ge 65536 ] 2>/dev/null; }; then
+    echo "info open-file limit daemon is not installed, but the limit is $soft: something else on this Mac sets it"
+  else echo "fail open-file limit daemon is missing and the limit is ${soft:-unknown} — run: mac-ai-server install"; rc=1; fi
   return "$rc"
 }

@@ -1,11 +1,15 @@
 #!/bin/bash
 # Claude Code pieces: claude, claude-local, chat, tmux session "main" (window "remote"), SSH welcome screen.
-# Env: MAS_PRIMARY, MAS_CONTEXT (from the plan), MAS_MULTIUSER. Tests: MAS_BREW_PREFIX, MAS_SYSROOT.
+# Env: MAS_PRIMARY, MAS_CONTEXT (from the plan), MAS_MULTIUSER, MAS_TMUX_MAIN (no = no session "main"). Tests: MAS_BREW_PREFIX, MAS_SYSROOT.
 # claude-local and chat are templates (__MODEL__, __CONTEXT__) filled in from the plan at install time.
 
 MAS_MOD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _mas_cl_bin() { printf '%s' "$HOME/.local/bin"; }
 _mas_cl_agent() { printf '%s' "$HOME/Library/LaunchAgents/local.ai-tmux.plist"; }
+_mas_cl_main() { [ "${MAS_TMUX_MAIN:-yes}" != no ]; }
+# SSH logins start the agent only where it's installed (older blocks always tried, then waited a second)
+_MAS_CL_KICK_OLD='  tmux has-session 2>/dev/null || { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }'
+_MAS_CL_KICK='  [ -f ~/Library/LaunchAgents/local.ai-tmux.plist ] && ! tmux has-session 2>/dev/null && { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }'
 _mas_cl_have() { command -v claude >/dev/null 2>&1 || [ -x "$(_mas_cl_bin)/claude" ]; }
 # Multi-user: shared copies of claude-local and chat for every account (one Ollama, one set of models).
 _mas_cl_sysbin() { printf '%s' "${MAS_SYSROOT:-}/usr/local/bin"; }
@@ -122,8 +126,12 @@ mod_run() {
 
   # Reload the agent only if its plist changed or it isn't loaded: a bootout can take the live
   # tmux session (and everything running in it) down with it.
+  # MAS_TMUX_MAIN=no: only the plist goes, so `main` stops starting at login; the job stays loaded
+  # until logout for the same reason (no bootout).
   sed "s|__HOME__|$HOME|g" "$MAS_MOD_ROOT/launchagents/local.ai-tmux.plist" > "$tmp"
-  if cmp -s "$tmp" "$agent" && launchctl print "gui/$(id -u)/local.ai-tmux" >/dev/null 2>&1; then
+  if ! _mas_cl_main; then
+    [ -f "$agent" ] && rm -f "$agent" && echo "The tmux session main no longer starts at login (MAS_TMUX_MAIN=no); a running one keeps going."
+  elif cmp -s "$tmp" "$agent" && launchctl print "gui/$(id -u)/local.ai-tmux" >/dev/null 2>&1; then
     echo "tmux LaunchAgent unchanged and loaded; not reloaded."
   else
     cp "$tmp" "$agent"
@@ -139,10 +147,14 @@ mod_run() {
 # SSH login: make sure the persistent tmux session exists (started in the desktop session so
 # Claude Code can read its keychain login), then show the welcome screen
 if [ -n "$SSH_CONNECTION" ] && [ -z "$TMUX" ] && [ -t 1 ]; then
-  tmux has-session 2>/dev/null || { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }
+  [ -f ~/Library/LaunchAgents/local.ai-tmux.plist ] && ! tmux has-session 2>/dev/null && { launchctl kickstart "gui/$(id -u)/local.ai-tmux" 2>/dev/null; sleep 1; }
   [ -f ~/.first-run/pending ] || ~/.local/bin/ai-motd
 fi
 BLOCK
+  fi
+  if grep -qxF "$_MAS_CL_KICK_OLD" "$HOME/.zprofile"; then
+    awk -v old="$_MAS_CL_KICK_OLD" -v new="$_MAS_CL_KICK" '$0 == old { print new; next } 1' "$HOME/.zprofile" > "$HOME/.zprofile.mas" &&
+      mv "$HOME/.zprofile.mas" "$HOME/.zprofile"
   fi
   # SSH logins start with the login keychain locked (its state is per login session): unlock it
   # there too, so Claude Code and gh find their logins. A block of its own, so older installs get it.
@@ -208,9 +220,12 @@ BLOCK
   grep -q 'mac-ai-server/claude-token' "$HOME/.zshrc" 2>/dev/null \
     || echo '[ -r ~/.mac-ai-server/claude-token ] && export CLAUDE_CODE_OAUTH_TOKEN="$(cat ~/.mac-ai-server/claude-token)"  # mac-ai-server token' >> "$HOME/.zshrc"
 
-  if ! _mas_cl_logged_in; then
+  if _mas_cl_logged_in; then :
+  elif _mas_cl_main; then
     mas_action "Log in to Claude Code inside tmux, then accept the Remote Control prompt" \
       "run: tmux new -As main, then claude (follow the login link); then tmux attach -t main:remote, type y, press Ctrl-b d"
+  else
+    mas_action "Log in to Claude Code" "run: claude (follow the login link)"
   fi
   [ "$rc" -eq 0 ] && echo "Claude Code pieces are in place (claude-local uses $MAS_PRIMARY, context $MAS_CONTEXT)."
   return "$rc"
@@ -230,8 +245,12 @@ mod_check() {
     echo "fail claude-local is missing or doesn't match the plan (${MAS_PRIMARY:-?}, context ${MAS_CONTEXT:-?}) — run: mac-ai-server install --only claude"
     return 1
   fi
-  if [ ! -f "$(_mas_cl_agent)" ]; then
+  if _mas_cl_main && [ ! -f "$(_mas_cl_agent)" ]; then
     echo "fail The tmux LaunchAgent is missing — run: mac-ai-server install --only claude"
+    return 1
+  fi
+  if ! _mas_cl_main && [ -f "$(_mas_cl_agent)" ]; then
+    echo "fail the tmux session main still starts at login, but MAS_TMUX_MAIN=no — run: mac-ai-server install --only claude"
     return 1
   fi
   n="$(_mas_cl_zprofile_count)"
@@ -275,7 +294,8 @@ mod_check() {
     return 1
   fi
   if ! _mas_cl_logged_in; then
-    echo "fail Claude Code isn't logged in — run: tmux new -As main, then claude"
+    if _mas_cl_main; then echo "fail Claude Code isn't logged in — run: tmux new -As main, then claude"
+    else echo "fail Claude Code isn't logged in — run: claude"; fi
     return 1
   fi
   if [ "${MAS_MULTIUSER:-no}" = yes ]; then
@@ -292,5 +312,5 @@ mod_check() {
       fi
     done
   fi
-  echo "ok Claude Code, claude-local, tmux agent and SSH welcome screen are set up"
+  echo "ok Claude Code, claude-local$(_mas_cl_main && echo ', tmux agent') and SSH welcome screen are set up"
 }

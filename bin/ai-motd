@@ -11,8 +11,10 @@ FREE="$(df -h / | awk 'NR==2{print $4}')"
 UP="$(uptime | sed -E 's/.*up +//; s/, +[0-9]+ users?.*//; s/,$//')"
 MODEL="$(ollama list 2>/dev/null | awk 'NR==2{print $1}')"
 LOADED="$(ollama ps 2>/dev/null | awk 'NR>1{print $1}' | paste -sd, -)"
-# The Mac's owner has the background tmux session with Remote Control (local.ai-tmux) and mac-ai-server.
-OWNER=0; [ -f "$HOME/Library/LaunchAgents/local.ai-tmux.plist" ] && OWNER=1
+# The Mac's owner has mac-ai-server, and usually the background tmux session "main" with Remote Control
+# (local.ai-tmux; MAS_TMUX_MAIN=no removes it).
+MAIN=0; [ -f "$HOME/Library/LaunchAgents/local.ai-tmux.plist" ] && MAIN=1
+OWNER="$MAIN"; [ -e "$HOME/.local/bin/mac-ai-server" ] && OWNER=1
 
 # back <tmux server> <session>: the command that goes (back) into that session
 back() { if [ "$1" = default ]; then printf 'tmux new -As %s' "$2"; else printf 'tmux -L %s new -As %s' "$1" "$2"; fi; }
@@ -74,8 +76,8 @@ fi
 LOGGED_IN=1; TRUSTED=0
 security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || [ -f "$HOME/.claude/.credentials.json" ] \
   || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || LOGGED_IN=0
-if [ "$OWNER" = 0 ]; then
-  [ "$LOGGED_IN" = 0 ] && printf '  %sClaude Code: not logged in yet. Run claude and follow the login link, with your own Claude account.%s\n' "$y" "$r"
+if [ "$MAIN" = 0 ]; then
+  [ "$LOGGED_IN" = 0 ] && printf '  %sClaude Code: not logged in yet. Run claude and follow the login link%s.%s\n' "$y" "$( [ "$OWNER" = 0 ] && printf ', with your own Claude account')" "$r"
 else
   python3 -c 'import json,os,sys; p=json.load(open(os.path.expanduser("~/.claude.json"))).get("projects",{}); sys.exit(0 if p.get(os.path.expanduser("~/projects"),{}).get("hasTrustDialogAccepted") else 1)' 2>/dev/null && TRUSTED=1
   if [ "$LOGGED_IN" = 0 ]; then

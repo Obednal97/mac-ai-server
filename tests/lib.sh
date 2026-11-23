@@ -11,6 +11,7 @@ t_setup() {
   export HOME="$T_TMP/home"
   mkdir -p "$HOME"
   unset CLAUDE_CONFIG_DIR   # would point Claude Code (and claude-local) at a real config past the throwaway HOME
+  unset TMUX                # running the suite inside tmux would skip the outside-tmux checks
   export FAKE_LOG="$T_TMP/fake.log"
   : > "$FAKE_LOG"
   # Only the fakes and the OS's own directories: never /opt/homebrew, /usr/local or ~/.local/bin,
